@@ -1,4 +1,6 @@
 import os
+from dotenv import load_dotenv
+load_dotenv()
 import argparse
 import requests
 import json
@@ -19,6 +21,8 @@ import logging
 import sqlite3
 import random
 from urllib.parse import quote_plus
+
+
 
 # Set up logging
 logging.basicConfig(
@@ -105,11 +109,20 @@ class LinkedInScraper:
         self.setup_selenium()
         
     def setup_selenium(self):
-        """Set up Selenium WebDriver for LinkedIn scraping"""
+        """Set up Selenium WebDriver for LinkedIn scraping with improved SSL handling"""
         chrome_options = Options()
         chrome_options.add_argument("--headless")  # Run in headless mode
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
+        
+        # Fix SSL errors
+        chrome_options.add_argument("--ignore-certificate-errors")
+        chrome_options.add_argument("--ignore-ssl-errors")
+        chrome_options.add_argument("--allow-insecure-localhost")
+        chrome_options.add_argument("--disable-web-security")
+        
+        # Make it harder for LinkedIn to detect automation
+        chrome_options.add_argument("--disable-blink-features=AutomationControlled")
         chrome_options.add_argument(f"user-agent={random.choice(self.config.user_agents)}")
         
         # Set up Chrome driver
@@ -117,40 +130,175 @@ class LinkedInScraper:
             service=Service(ChromeDriverManager().install()),
             options=chrome_options
         )
+        
+        # Execute CDP commands to make automation less detectable
+        self.driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
+            "source": """
+            Object.defineProperty(navigator, 'webdriver', {
+                get: () => undefined
+            })
+            """
+        })
     
-    def login_to_linkedin(self):
-        """Login to LinkedIn using provided credentials"""
-        if not self.config.linkedin_email or not self.config.linkedin_password:
-            logger.warning("LinkedIn credentials not provided. Some data may be limited.")
-            return False
-            
+    LINKEDIN_COOKIES_FILE = "linkedin_cookies.json" # Define a file to store cookies
+
+    def _save_cookies(self):
+        """Save browser cookies to a file."""
         try:
-            logger.info("Logging into LinkedIn...")
-            self.driver.get("https://www.linkedin.com/login")
-            
-            # Wait for the page to load and login elements to be visible
-            WebDriverWait(self.driver, 10).until(
-                EC.presence_of_element_located((By.ID, "username"))
-            )
-            
-            # Enter credentials and login
-            self.driver.find_element(By.ID, "username").send_keys(self.config.linkedin_email)
-            self.driver.find_element(By.ID, "password").send_keys(self.config.linkedin_password)
-            self.driver.find_element(By.CSS_SELECTOR, "button[type='submit']").click()
-            
-            # Check if login was successful by waiting for feed page
-            try:
-                WebDriverWait(self.driver, 10).until(
-                    EC.presence_of_element_located((By.ID, "global-nav"))
-                )
-                logger.info("Successfully logged into LinkedIn")
-                return True
-            except:
-                logger.warning("LinkedIn login might have failed. Continuing with limited access.")
+            cookies = self.driver.get_cookies()
+            with open(self.LINKEDIN_COOKIES_FILE, 'w') as f:
+                json.dump(cookies, f)
+            logger.info("LinkedIn cookies saved.")
+        except Exception as e:
+            logger.error(f"Error saving cookies: {e}")
+
+    def _load_cookies(self):
+        """Load browser cookies from a file with improved error handling."""
+        try:
+            # Check if cookie file exists
+            if not os.path.exists(self.LINKEDIN_COOKIES_FILE):
+                logger.info("No LinkedIn cookies file found. Will proceed with fresh login.")
                 return False
                 
+            # Read cookie file
+            with open(self.LINKEDIN_COOKIES_FILE, 'r') as f:
+                cookies = json.load(f)
+                
+            if not cookies:
+                logger.info("Empty cookies file. Will proceed with fresh login.")
+                return False
+            
+            # Visit LinkedIn domain once before adding cookies
+            logger.info("Visiting LinkedIn domain before adding cookies...")
+            self.driver.get("https://www.linkedin.com")
+            time.sleep(3)  # Allow more time for page to load completely
+            
+            # Add cookies one by one with better error handling
+            cookies_added = 0
+            
+            for cookie in cookies:
+                try:
+                    # Remove problematic cookie attributes
+                    for attr in ['expiry', 'sameSite']:
+                        if attr in cookie:
+                            del cookie[attr]
+                    
+                    # Ensure domain is set correctly (add domain if missing)
+                    if 'domain' not in cookie:
+                        cookie['domain'] = '.linkedin.com'
+                        
+                    self.driver.add_cookie(cookie)
+                    cookies_added += 1
+                except Exception as e:
+                    logger.debug(f"Could not add cookie {cookie.get('name')}: {str(e)}")
+                    continue
+                    
+            logger.info(f"Added {cookies_added} cookies out of {len(cookies)}")
+            return cookies_added > 0
+            
+        except json.JSONDecodeError:
+            logger.warning("LinkedIn cookies file is corrupted. Removing it and performing fresh login.")
+            os.remove(self.LINKEDIN_COOKIES_FILE)
+            return False
         except Exception as e:
-            logger.error(f"Error logging into LinkedIn: {str(e)}")
+            logger.error(f"Error loading cookies: {str(e)}")
+            return False
+
+    def login_to_linkedin(self):
+        """Login to LinkedIn with improved cookie handling and detection avoidance."""
+        if not self.config.linkedin_email or not self.config.linkedin_password:
+            logger.warning("LinkedIn credentials not provided. Proceeding without login.")
+            return False
+
+        try:
+            logger.info("Attempting LinkedIn login...")
+            
+            # Try using cookies first
+            cookies_loaded = self._load_cookies()
+            
+            if cookies_loaded:
+                # After adding cookies, refresh and navigate to feed
+                logger.info("Cookies added, refreshing page...")
+                self.driver.refresh()
+                time.sleep(3)
+                
+                # Navigate to feed to check login status
+                logger.info("Checking if we're logged in...")
+                self.driver.get("https://www.linkedin.com/feed/")
+                time.sleep(5)  # Allow more time to load
+                
+                # Check for login success indicators
+                try:
+                    # Check multiple indicators of successful login
+                    login_indicators = [
+                        (By.ID, "global-nav"),
+                        (By.CSS_SELECTOR, "div.feed-identity-module"),
+                        (By.CSS_SELECTOR, "li.global-nav__primary-item")
+                    ]
+                    
+                    for indicator in login_indicators:
+                        try:
+                            WebDriverWait(self.driver, 3).until(EC.presence_of_element_located(indicator))
+                            logger.info(f"Login successful! Found indicator: {indicator[1]}")
+                            return True
+                        except:
+                            pass
+                            
+                    # If none of the indicators are found
+                    logger.info("Could not confirm login with cookies, proceeding to credentials login")
+                except:
+                    logger.warning("Saved cookies might be invalid. Proceeding to full login.")
+            
+            # Full login with credentials
+            logger.info("Attempting full login with credentials...")
+            
+            # Clear cookies and cache before trying credentials
+            self.driver.delete_all_cookies()
+            self.driver.get("chrome://settings/clearBrowserData")
+            time.sleep(2)
+            
+            # Go to login page with a clean state
+            self.driver.get("https://www.linkedin.com/login")
+            time.sleep(3)
+            
+            # Wait for login form and enter credentials
+            try:
+                username_field = WebDriverWait(self.driver, 10).until(
+                    EC.presence_of_element_located((By.ID, "username"))
+                )
+                username_field.clear()
+                username_field.send_keys(self.config.linkedin_email)
+                
+                password_field = self.driver.find_element(By.ID, "password")
+                password_field.clear()
+                password_field.send_keys(self.config.linkedin_password)
+                
+                self.driver.find_element(By.CSS_SELECTOR, "button[type='submit']").click()
+                
+                # Add a random delay to simulate human behavior
+                time.sleep(random.uniform(3, 5))
+                
+                # Check for login success
+                for _ in range(3):  # Try a few times with delays
+                    try:
+                        WebDriverWait(self.driver, 5).until(
+                            EC.presence_of_element_located((By.ID, "global-nav"))
+                        )
+                        logger.info("Successfully logged into LinkedIn with credentials")
+                        self._save_cookies()  # Save cookies after successful login
+                        return True
+                    except:
+                        time.sleep(2)  # Wait and retry
+                        
+                logger.warning("LinkedIn login might have failed. Limited access.")
+                return False
+                
+            except Exception as login_error:
+                logger.error(f"Error during login process: {str(login_error)}")
+                return False
+
+        except Exception as e:
+            logger.error(f"Error during LinkedIn login process: {str(e)}")
             return False
     
     def extract_profile_data(self, profile_url):
@@ -598,18 +746,19 @@ class LinkedInOutreachPipeline:
         self.generator = MessageGenerator(self.config)
         self.db = DatabaseOps()
     
-    def process_single_profile(self, profile_url):
-        """Process a single LinkedIn profile to generate a personalized message"""
+    # Modified process_single_profile to accept a scraper instance
+    def process_single_profile_with_scraper(self, profile_url, scraper_instance):
+        """Process a single LinkedIn profile using a provided scraper instance."""
         try:
-            # Step 1: Attempt to login to LinkedIn (optional but helps get more data)
-            self.scraper.login_to_linkedin()
-            
-            # Step 2: Extract LinkedIn profile data
-            founder_data = self.scraper.extract_profile_data(profile_url)
+            # Step 1: Use the provided scraper instance for login (it should handle cookies)
+            scraper_instance.login_to_linkedin() # Login should be handled by the instance
+
+            # Step 2: Extract LinkedIn profile data using the provided scraper instance
+            founder_data = scraper_instance.extract_profile_data(profile_url) # Use instance
             if not founder_data:
                 logger.error("Failed to extract profile data")
                 return None
-                
+            
             # Step 3: Extract company information
             company_name = None
             if 'experiences' in founder_data and founder_data['experiences']:
@@ -660,13 +809,10 @@ class LinkedInOutreachPipeline:
                 'summary': company_summary,
                 'message': personalized_message
             }
-            
+
         except Exception as e:
             logger.error(f"Error in pipeline: {str(e)}")
             return None
-        finally:
-            # Ensure we close the browser
-            self.scraper.close()
     
     def process_batch_from_csv(self, csv_file):
         """Process multiple LinkedIn profiles from a CSV file"""
