@@ -317,24 +317,75 @@ class LinkedInScraper:
             # Extract basic profile information
             profile_data = {}
             
-            # Get full name
-            try:
-                name_element = self.driver.find_element(By.CSS_SELECTOR, "h1.text-heading-xlarge")
-                profile_data['full_name'] = name_element.text.strip()
-            except:
-                profile_data['full_name'] = "Unknown"
-                
+            # Get full name - Try multiple selectors to improve reliability
+            full_name = None
+            name_selectors = [
+                "h1.text-heading-xlarge",
+                "h1.t-24.t-black.t-normal.break-words",
+                "h1.inline.t-24.t-black.t-normal.break-words",
+                "h1.text-body-medium" 
+            ]
+            
+            for selector in name_selectors:
+                try:
+                    name_element = self.driver.find_element(By.CSS_SELECTOR, selector)
+                    full_name = name_element.text.strip()
+                    if full_name:
+                        break
+                except:
+                    continue
+            
+            # If still no name, try a more generic approach
+            if not full_name:
+                try:
+                    # Try to find any h1 element in the page header section
+                    header_section = self.driver.find_element(By.CSS_SELECTOR, ".pv-top-card")
+                    name_element = header_section.find_element(By.TAG_NAME, "h1")
+                    full_name = name_element.text.strip()
+                except:
+                    pass
+            
+            profile_data['full_name'] = full_name or "Unknown"
+            
             # Get headline
+            headline = ""
             try:
-                headline = self.driver.find_element(By.CSS_SELECTOR, "div.text-body-medium")
-                profile_data['headline'] = headline.text.strip()
+                headline_selectors = [
+                    "div.text-body-medium",
+                    "div.t-16.t-black.t-normal.break-words"
+                ]
+                
+                for selector in headline_selectors:
+                    try:
+                        headline_element = self.driver.find_element(By.CSS_SELECTOR, selector)
+                        headline = headline_element.text.strip()
+                        if headline:
+                            break
+                    except:
+                        continue
             except:
-                profile_data['headline'] = ""
+                pass
+            
+            profile_data['headline'] = headline
                 
             # Get location
             try:
-                location = self.driver.find_element(By.CSS_SELECTOR, "span.text-body-small.inline.t-black--light.break-words")
-                profile_data['location'] = location.text.strip()
+                location_selectors = [
+                    "span.text-body-small.inline.t-black--light.break-words",
+                    "span.t-16.t-black.t-normal.inline-block"
+                ]
+                
+                location = ""
+                for selector in location_selectors:
+                    try:
+                        location_element = self.driver.find_element(By.CSS_SELECTOR, selector)
+                        location = location_element.text.strip()
+                        if location:
+                            break
+                    except:
+                        continue
+                        
+                profile_data['location'] = location
             except:
                 profile_data['location'] = ""
                 
@@ -499,7 +550,7 @@ class CompanyResearcher:
 class MessageGenerator:
     def __init__(self, config):
         self.config = config
-        self.generation_model = genai.GenerativeModel('gemini-1.5-pro')
+        self.generation_model = genai.GenerativeModel('gemini-2.0-flash')
     
     def summarize_company_data(self, founder_data, company_data):
         """Summarize all the data we have about the founder and company using Gemini"""
