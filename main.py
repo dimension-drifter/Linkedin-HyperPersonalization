@@ -754,23 +754,53 @@ class MessageGenerator:
             
             # Use Gemini to create a concise summary
             prompt = f"""
-            Please create a concise summary (max 150 words) about this founder and their company:
-            
-            Founder: {json.dumps(founder_summary, indent=2)}
-            
-            Company: {json.dumps(company_summary, indent=2)}
-            
-            {news_summary}
-            
-            Focus on:
-            1. Their current business/startup and what problem it solves
-            2. The founder's background and specific achievements
-            3. Any unique aspects about their career or company
-            4. Recent news or developments
-            5. Their technical background if relevant for an AI/ML conversation
-            
-            Make it detailed and specific to this founder.
-            """
+                **Expert Founder & Company Summary for Personalized Outreach**
+
+                **Objective:** Generate a highly informative and actionable summary of a founder and their company (maximum 600 words). This summary will be used to craft a deeply personalized LinkedIn outreach message.
+
+                **Input Data:**
+
+                * **Founder Profile Data:** {json.dumps(founder_summary, indent=2)} (Detailed information about the founder's background, experience, skills, and summary.)
+                * **Company Data:** {json.dumps(company_summary, indent=2)} (Information about the company, its description, website, and potentially recent news.)
+                * **Recent News (Optional):** {news_summary} (If available, recent news articles about the company.)
+
+                **Summary Focus - Extract Key Insights for Outreach:**
+
+                1. **Core Business & Value Proposition:**
+                    * **Precisely describe the company's current business/startup.** What specific problem are they solving in the market? What is their core product or service?
+                    * **Highlight their *unique value proposition*.** What makes them stand out from competitors? What is innovative or particularly impactful about their approach?
+
+                2. **Founder's Journey & Standout Achievements:**
+                    * **Summarize the founder's relevant background and career journey *leading up to their current role*.** Focus on experiences that shaped their expertise and vision.
+                    * **Pinpoint *2-3 specific, quantifiable achievements or notable experiences* from their background.**  Whenever possible, include metrics or specific examples to demonstrate impact (e.g., "Led a team that increased sales by 30%", "Developed a patented technology", "Raised $X million in funding").
+
+                3. **Unique Angles & "Intriguing Details":**
+                    * **Identify any *unique or particularly intriguing aspects* of the founder's career path or the company's story.**  This could be an unusual pivot, a remarkable early success, a strong mission-driven approach, or something that sparks genuine curiosity.
+                    * **Look for details that are *not immediately obvious* from a quick profile glance.** Dig deeper into their summary and experiences.
+
+                4. **Recent Momentum & "News Hooks":**
+                    * **If news is provided, highlight *key recent developments* or achievements mentioned in the news articles.** Focus on news that indicates current momentum or significant progress.
+                    * **Identify potential "news hooks"** – specific recent events or announcements that could be naturally referenced in an outreach message to show you're up-to-date.
+
+                5. **Technical Relevance for AI/ML Conversation (If Applicable):**
+                    * **If the founder or company is in the AI/ML space (or related), emphasize their technical background, relevant skills, or technical innovations.**
+                    * **Identify specific technical areas or projects that could be *natural starting points for a technical conversation* as an ML/AI engineer.**
+
+                **Output Style & Tone:**
+
+                * **Detailed yet Concise:** Aim for a summary that is rich in detail but still stays within the 600-word limit. Prioritize the *most impactful* information.
+                * **Actionable & Insight-Driven:** Focus on extracting insights that are *directly useful* for crafting personalized outreach messages. Think of it as creating a "cheat sheet" of key talking points.
+                * **Specific & Fact-Based:** Use specific details, examples, and quantifiable achievements whenever possible, rather than vague generalizations.
+                * **Structured for Readability (Implicit):** While not strictly required, subtly structure the summary to address each of the 5 focus areas, making it easier to parse and extract information later.
+
+                **Example of Desired Output (Illustrative - Text Summary):**
+
+                "Founder [Founder Name] is the CEO of [Company Name], a startup revolutionizing [Industry] with their innovative AI-powered platform for [Specific Problem Solved].  [Company Name]'s unique value proposition lies in [Key Differentiator, e.g., patent-pending algorithm, focus on sustainability, etc.].
+
+                [Founder Name]'s background includes [Number] years in [Industry], previously at [Previous Company] where they [Quantifiable Achievement, e.g., "led a team that launched 3 successful products," "grew user base by 200%"].  A particularly intriguing detail is [Unique Aspect, e.g., "their early career as a research scientist," "their passion for social impact," etc.].  Recent news highlights [Company Name]'s [Recent Achievement, e.g., "successful Series A funding round," "partnership with a major industry player," "award for innovation"].  Given their focus on [Specific AI/ML area, e.g., "computer vision," "NLP for healthcare," etc.], there's a strong technical angle for an AI/ML conversation."
+
+                **Generate the founder and company summary now, focusing on extracting the most actionable insights for personalized LinkedIn outreach.**
+                """
             
             response = self.generation_model.generate_content(prompt)
             return response.text
@@ -803,30 +833,61 @@ class MessageGenerator:
             hooks_str = ", ".join(hooks) if hooks else "their current work"
             
             prompt = f"""
-            Create a personalized LinkedIn message to {founder_name}, based on this detailed summary:
-            
-            {company_summary}
-            
-            Requirements for the message:
-            1. Keep it short (under 300 characters) and conversational
-            2. Mention a SPECIFIC detail about their company, background, or achievement
-            3. Briefly introduce myself as an ML/AI engineer interested in their space
-            4. End with a simple question related to {hooks_str} to start a conversation
-            5. Make it feel authentic and not sales-y
-            6. Don't use generic phrases like "I came across your profile" or "I'm impressed with your work"
-            7. Mention something SPECIFIC that demonstrates I've actually looked at their profile
-            
-            The message should be ready to copy and paste directly to LinkedIn.
+            **LinkedIn Outreach Message Generation - Expert Level Personalization**
+
+            **Objective:** Craft a highly personalized and engaging LinkedIn connection request message to {founder_name}, a founder, designed to initiate a genuine conversation and build a valuable connection.
+
+            **Key Information to Leverage:**
+
+            * **Founder's Name:** {founder_name}
+            * **Detailed Founder & Company Summary:** {company_summary} (This summary encapsulates key aspects of their company, background, and potentially recent achievements.)
+            * **Potential Conversation Hooks:** {hooks_str} (These are specific points of interest related to {founder_name}'s profile or company, such as recent projects, industry insights, shared interests, or relevant skills. Think of these as *conversation starters*.)
+
+            **Message Requirements - Execute with Precision:**
+
+            1. **Conciseness is Paramount:**  The message MUST be under 500 characters. LinkedIn first messages are about brevity and impact.
+
+            2. **Hyper-Personalization - The Core:**
+                * **Insightful Detail Extraction:**  From the `company_summary`, identify and **weave in ONE genuinely insightful and *non-obvious* detail** about {founder_name}'s company, their background, or a recent achievement.  Go beyond surface-level information. Aim for something that shows you've *truly understood* their work.
+                * **Show, Don't Tell:**  Instead of saying "I'm impressed...", *demonstrate* your interest by subtly referencing this specific detail in a way that naturally leads to your introduction or question.
+
+            3. **Authentic Introduction - Value-Driven, Not Self-Serving:**
+                * **Brief & Relevant Intro:** Introduce yourself *concisely* as an ML/AI engineer. Immediately pivot to expressing your genuine interest in *their* space and *their* work.  Focus on what you find valuable about *their* contributions.
+                * **Avoid Generic Self-Promotion:**  Absolutely NO generic phrases like "I'm an expert in..." or lengthy self-descriptions. Keep the focus on {founder_name} and their company.
+
+            4. **Strategic Conversation Starter - Leverage 'hooks_str':**
+                * **Thought-Provoking Question:** Craft a *single, thought-provoking question* that **directly stems** from the *most compelling* conversation hook in `{hooks_str}`.
+                * **Relevance is Key:** Ensure the question feels highly relevant to {founder_name}'s current work, industry, or stated interests.
+                * **Open-Ended and Engaging:**  The question should invite {founder_name} to share their perspective, insights, or experiences, rather than just a yes/no answer.
+
+            5. **Tone - Genuinely Curious & Respectful:**
+                * **Conversational & Natural:**  Maintain a warm, human, and conversational tone.  Imagine you are briefly reaching out to a respected peer in your field.
+                * **Value-Driven, Not Sales-y:** The message should convey genuine curiosity and a desire to learn and connect, *not* a hidden sales agenda or transactional motive.
+
+            6. **Negative Constraints - Absolutely Avoid:**
+                * **No Generic Openers:**  CRUCIALLY, avoid generic openers like "I came across your profile," "I'm impressed with your profile," or any similar bland phrases.
+                * **No Flattery for Flattery's Sake:**  Avoid superficial flattery or generic compliments.  Personalization should feel genuine, not like empty praise.
+                * **No Immediate Asks/Demands:**  Do not ask for anything in the first message (advice, job referrals, etc.). The goal is connection, not immediate favors.
+
+            7. **Output - LinkedIn Ready:** The generated message MUST be perfectly formatted and ready to copy and paste directly into a LinkedIn connection request message box.
+
+            **Example of 'hooks_str' variable content (Illustrative - you will dynamically generate this):**
+
+            \`\`\`
+            hooks_str = "potential conversation hooks: recent project in sustainable AI, blog post on ethical ML, mentioned interest in industry collaborations, skills in explainable AI"
+            \`\`\`
+
+            **Generate the LinkedIn message now, adhering strictly to ALL requirements above.**
             """
             
             response = self.generation_model.generate_content(prompt)
             message = response.text
             
-            # Check character limit for LinkedIn first messages (300)
-            if len(message) > 300:
+            # Check character limit for LinkedIn first messages (500)
+            if len(message) > 500:
                 prompt = f"""
                 The previous message was too long ({len(message)} chars). 
-                Please rewrite it to be under 300 characters while keeping it personalized,
+                Please rewrite it to be under 500 characters while keeping it personalized,
                 mentioning something specific about {founder_name}'s work at {company_name}.
                 """
                 response = self.generation_model.generate_content(prompt)
@@ -1197,7 +1258,7 @@ def main():
                 print("="*80)
                 print(result['message'])
                 print("="*80)
-                print(f"\nCharacter count: {len(result['message'])} (LinkedIn limit: 300 for first message)")
+                print(f"\nCharacter count: {len(result['message'])} (LinkedIn limit: 500 for first message)")
                 
                 # Save to file
                 with open('linkedin_message.txt', 'w', encoding='utf-8') as f:
