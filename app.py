@@ -1,13 +1,11 @@
 import streamlit as st
-import main  # Import your main script
+import main  
 import pandas as pd
 import random
 import time
 
-# Page configuration
 st.set_page_config(page_title="LinkedIn Hyper-Personalized Outreach", page_icon="🔗", layout="wide")
 
-# Simple app title and description
 st.title("LinkedIn Hyper-Personalized Outreach")
 st.caption("Process LinkedIn profiles and generate hyper-personalized outreach messages")
 
@@ -25,7 +23,6 @@ if 'processed_count' not in st.session_state:
 if 'total_to_process' not in st.session_state:
     st.session_state.total_to_process = 0
     
-# Initialize Pipeline and LinkedInScraper
 @st.cache_resource
 def get_pipeline_and_scraper():
     pipeline = main.LinkedInOutreachPipeline()
@@ -184,11 +181,9 @@ if st.session_state.logged_in:
             with col2:
                 st.metric("Failed", failed_count)
             
-            # Results table
             result_df = pd.DataFrame(st.session_state.batch_results)
             st.dataframe(result_df[["url", "name", "company", "status"]])
             
-            # Display messages in expandable sections
             for i, result in enumerate(st.session_state.batch_results):
                 if result["status"] == "success":
                     with st.expander(f"{result['name']} ({result['company']})"):

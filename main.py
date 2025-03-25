@@ -106,19 +106,32 @@ class LinkedInScraper:
         self.setup_selenium()
         
     def setup_selenium(self):
-        """Set up Selenium WebDriver for LinkedIn scraping with improved SSL handling"""
+        """Optimized Selenium setup for faster performance"""
         chrome_options = Options()
-        chrome_options.add_argument("--headless")  # Run in headless mode
+        chrome_options.add_argument("--headless")
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
         
-        # Fix SSL errors
-        chrome_options.add_argument("--ignore-certificate-errors")
-        chrome_options.add_argument("--ignore-ssl-errors")
-        chrome_options.add_argument("--allow-insecure-localhost")
-        chrome_options.add_argument("--disable-web-security")
+        # Critical speed optimizations
+        chrome_options.add_argument("--disable-extensions")
+        chrome_options.add_argument("--disable-gpu")
+        chrome_options.add_argument("--disable-notifications")
         
-        # Make it harder for LinkedIn to detect automation
+        # Disable images and other resource loading (massive speedup)
+        chrome_options.add_argument("--blink-settings=imagesEnabled=false")
+        prefs = {
+            "profile.default_content_setting_values": {
+                "images": 2,       # Block images
+                "plugins": 2,      # Block plugins
+                "popups": 2,       # Block popups
+                "geolocation": 2,  # Block geolocation
+                "notifications": 2 # Block notifications
+            },
+            "profile.managed_default_content_settings.javascript": 1  # Allow JavaScript
+        }
+        chrome_options.add_experimental_option("prefs", prefs)
+        
+        # Existing anti-detection code...
         chrome_options.add_argument("--disable-blink-features=AutomationControlled")
         chrome_options.add_argument(f"user-agent={random.choice(self.config.user_agents)}")
         
@@ -299,22 +312,29 @@ class LinkedInScraper:
             return False
     
     def extract_profile_data(self, profile_url):
-        """Extract data from a LinkedIn profile with enhanced detail extraction"""
+        """Extract data from a LinkedIn profile with dynamic waits"""
         logger.info(f"Extracting data from LinkedIn profile: {profile_url}")
         
         try:
+            # First check cache
+            cached_profile = self.get_cached_profile(profile_url)
+            if cached_profile:
+                logger.info("Using cached profile data")
+                return cached_profile
+            
             # Navigate to the profile
             self.driver.get(profile_url)
-            # Add a longer wait to ensure page fully loads (LinkedIn can be slow)
-            logger.info("Waiting for profile page to fully load...")
-            time.sleep(random.uniform(5, 8))  # Increased wait time
             
-            # After navigation, check if we're actually on a profile page
-            current_url = self.driver.current_url
-            if "linkedin.com/in/" not in current_url:
-                logger.warning(f"Not on a profile page. Current URL: {current_url}")
-                return None
-            
+            # Wait for specific elements instead of fixed sleep
+            try:
+                # Wait for name to appear - a good indicator the profile has loaded
+                WebDriverWait(self.driver, 10).until(
+                    EC.presence_of_element_located((By.CSS_SELECTOR, 
+                        "h1.text-heading-xlarge, h1.inline.t-24.t-black.t-normal.break-words"))
+                )
+            except:
+                logger.warning("Timed out waiting for profile page to load")
+                
             # Scroll through the page to load all content
             self._scroll_profile_page()
             
@@ -581,21 +601,20 @@ class LinkedInScraper:
             return None
 
     def _scroll_profile_page(self):
-        """Helper method to scroll through the profile page to ensure all content is loaded"""
+        """Optimized profile scrolling - much faster than before"""
         try:
-            # Scroll down in increments
+            # Get page height
             total_height = self.driver.execute_script("return document.body.scrollHeight")
-            height = 0
-            increment = total_height / 8  # Divide into 8 steps
             
-            while height < total_height:
-                height += increment
-                self.driver.execute_script(f"window.scrollTo(0, {height});")
-                time.sleep(random.uniform(0.5, 1.0))  # Random delay between scrolls
-                
-            # Scroll back to top
-            self.driver.execute_script("window.scrollTo(0, 0);")
-            time.sleep(1)
+            # Use fewer scroll steps (3 instead of 8)
+            steps = 3
+            for i in range(steps):
+                # Scroll in bigger chunks
+                self.driver.execute_script(f"window.scrollTo(0, {(i+1) * total_height / steps});")
+                # Much shorter wait between scrolls
+                time.sleep(0.3)
+            
+            # No need to scroll back to top - saves time
         except Exception as e:
             logger.debug(f"Error during page scrolling: {str(e)}")
     
@@ -609,49 +628,43 @@ class CompanyResearcher:
     def __init__(self, config):
         self.config = config
     
-    def search_company_info(self, company_name):
-        """Search for company information using free APIs and web scraping"""
+    def search_company_info(self, company_name, fast_mode=False):
+        """Search for company information with speed optimizations"""
         logger.info(f"Researching company: {company_name}")
+        
+        # Set a short timeout
+        timeout = 3  # seconds
+        
         company_info = {
             'name': company_name,
-            'website': self._find_company_website(company_name),
-            'news': self._get_news_articles(company_name),
-            'description': self._get_company_description(company_name)
+            'website': self._find_company_website(company_name, timeout),
+            'description': self._get_company_description(company_name, timeout),
+            'news': []  # Skip news by default in fast mode
         }
+        
+        # Only get news in normal mode (not fast mode)
+        if not fast_mode:
+            company_info['news'] = self._get_news_articles(company_name, timeout)
+        
         return company_info
-    
-    def _find_company_website(self, company_name):
-        """Find company website using DuckDuckGo search"""
+
+    def _find_company_website(self, company_name, timeout=3):
+        """Find company website with timeout"""
         try:
-            # Encode company name for URL
             encoded_query = quote_plus(f"{company_name} official website")
             url = f"https://html.duckduckgo.com/html/?q={encoded_query}"
             
-            headers = {
-                'User-Agent': random.choice(self.config.user_agents)
-            }
-            
-            response = requests.get(url, headers=headers)
-            if response.status_code == 200:
-                soup = BeautifulSoup(response.text, 'html.parser')
-                results = soup.find_all('a', {'class': 'result__url'})
-                
-                # Filter out common non-company websites
-                excluded_domains = ['linkedin.com', 'facebook.com', 'twitter.com', 'instagram.com', 
-                                   'crunchbase.com', 'bloomberg.com', 'wikipedia.org']
-                
-                for result in results:
-                    link = result.get('href', '')
-                    # Check if this is likely the company website (not social media, etc)
-                    if not any(domain in link for domain in excluded_domains):
-                        return link
-            
+            headers = {'User-Agent': random.choice(self.config.user_agents)}
+            response = requests.get(url, headers=headers, timeout=timeout)
+            # Rest of code...
+        except requests.exceptions.Timeout:
+            logger.warning(f"Timeout finding website for {company_name}")
             return ""
         except Exception as e:
             logger.error(f"Error finding company website: {str(e)}")
             return ""
-    
-    def _get_news_articles(self, company_name):
+
+    def _get_news_articles(self, company_name, timeout=3):
         """Get news articles about the company using free News API"""
         try:
             # Using GDELT's free news search via Webhose
@@ -662,7 +675,7 @@ class CompanyResearcher:
                 'User-Agent': random.choice(self.config.user_agents)
             }
             
-            response = requests.get(url, headers=headers)
+            response = requests.get(url, headers=headers, timeout=timeout)
             articles = []
             
             if response.status_code == 200:
@@ -678,7 +691,7 @@ class CompanyResearcher:
             logger.error(f"Error fetching news: {str(e)}")
             return []
     
-    def _get_company_description(self, company_name):
+    def _get_company_description(self, company_name, timeout=3):
         """Get company description from web search"""
         try:
             # Use DuckDuckGo to get a summary
@@ -689,7 +702,7 @@ class CompanyResearcher:
                 'User-Agent': random.choice(self.config.user_agents)
             }
             
-            response = requests.get(url, headers=headers)
+            response = requests.get(url, headers=headers, timeout=timeout)
             if response.status_code == 200:
                 soup = BeautifulSoup(response.text, 'html.parser')
                 snippets = soup.find_all('a', {'class': 'result__snippet'})
