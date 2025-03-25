@@ -302,13 +302,24 @@ class LinkedInScraper:
             return False
     
     def extract_profile_data(self, profile_url):
-        """Extract data from a LinkedIn profile"""
+        """Extract data from a LinkedIn profile with enhanced detail extraction"""
         logger.info(f"Extracting data from LinkedIn profile: {profile_url}")
         
         try:
             # Navigate to the profile
             self.driver.get(profile_url)
-            time.sleep(random.uniform(2, 4))  # Random delay to avoid detection
+            # Add a longer wait to ensure page fully loads (LinkedIn can be slow)
+            logger.info("Waiting for profile page to fully load...")
+            time.sleep(random.uniform(5, 8))  # Increased wait time
+            
+            # After navigation, check if we're actually on a profile page
+            current_url = self.driver.current_url
+            if "linkedin.com/in/" not in current_url:
+                logger.warning(f"Not on a profile page. Current URL: {current_url}")
+                return None
+            
+            # Scroll through the page to load all content
+            self._scroll_profile_page()
             
             # Get profile HTML
             page_source = self.driver.page_source
@@ -317,130 +328,279 @@ class LinkedInScraper:
             # Extract basic profile information
             profile_data = {}
             
-            # Get full name - Try multiple selectors to improve reliability
-            full_name = None
-            name_selectors = [
-                "h1.text-heading-xlarge",
-                "h1.t-24.t-black.t-normal.break-words",
-                "h1.inline.t-24.t-black.t-normal.break-words",
-                "h1.text-body-medium" 
-            ]
-            
-            for selector in name_selectors:
-                try:
-                    name_element = self.driver.find_element(By.CSS_SELECTOR, selector)
-                    full_name = name_element.text.strip()
-                    if full_name:
+            # Get full name - using existing implementation
+            try:
+                # Try multiple selector strategies to find the name
+                name_selectors = [
+                    "h1.text-heading-xlarge",
+                    "h1.inline.t-24.t-black.t-normal.break-words", 
+                    "h1.text-heading-xlarge.inline.t-24.t-black.t-normal.break-words",
+                    "h1.pv-text-details__left-panel--name"
+                ]
+                
+                name_found = False
+                for selector in name_selectors:
+                    try:
+                        WebDriverWait(self.driver, 5).until(
+                            EC.presence_of_element_located((By.CSS_SELECTOR, selector))
+                        )
+                        name_element = self.driver.find_element(By.CSS_SELECTOR, selector)
+                        profile_data['full_name'] = name_element.text.strip()
+                        name_found = True
+                        logger.info(f"Found name using selector: {selector}")
                         break
-                except:
-                    continue
-            
-            # If still no name, try a more generic approach
-            if not full_name:
-                try:
-                    # Try to find any h1 element in the page header section
-                    header_section = self.driver.find_element(By.CSS_SELECTOR, ".pv-top-card")
-                    name_element = header_section.find_element(By.TAG_NAME, "h1")
-                    full_name = name_element.text.strip()
-                except:
-                    pass
-            
-            profile_data['full_name'] = full_name or "Unknown"
-            
-            # Get headline
-            headline = ""
+                    except Exception as selector_error:
+                        logger.debug(f"Selector {selector} failed: {str(selector_error)}")
+                
+                if not name_found:
+                    h1_elements = self.driver.find_elements(By.TAG_NAME, "h1")
+                    if h1_elements:
+                        profile_data['full_name'] = h1_elements[0].text.strip()
+                        logger.info("Found name using generic h1 approach")
+                    else:
+                        profile_data['full_name'] = "Unknown"
+                        logger.warning("Could not find name element on profile page")
+            except Exception as name_error:
+                logger.error(f"Error extracting name: {str(name_error)}")
+                profile_data['full_name'] = "Unknown"
+                
+            # Get headline - multiple selector approach
             try:
                 headline_selectors = [
                     "div.text-body-medium",
-                    "div.t-16.t-black.t-normal.break-words"
+                    "div.pv-text-details__left-panel--subtitle",
+                    "div.text-body-medium.break-words"
                 ]
                 
                 for selector in headline_selectors:
                     try:
-                        headline_element = self.driver.find_element(By.CSS_SELECTOR, selector)
-                        headline = headline_element.text.strip()
-                        if headline:
-                            break
-                    except:
-                        continue
-            except:
-                pass
-            
-            profile_data['headline'] = headline
-                
-            # Get location
-            try:
-                location_selectors = [
-                    "span.text-body-small.inline.t-black--light.break-words",
-                    "span.t-16.t-black.t-normal.inline-block"
-                ]
-                
-                location = ""
-                for selector in location_selectors:
-                    try:
-                        location_element = self.driver.find_element(By.CSS_SELECTOR, selector)
-                        location = location_element.text.strip()
-                        if location:
-                            break
+                        headline = self.driver.find_element(By.CSS_SELECTOR, selector)
+                        profile_data['headline'] = headline.text.strip()
+                        break
                     except:
                         continue
                         
-                profile_data['location'] = location
+                if 'headline' not in profile_data:
+                    profile_data['headline'] = ""
+            except:
+                profile_data['headline'] = ""
+                
+            # Get location - multiple selector approach
+            try:
+                location_selectors = [
+                    "span.text-body-small.inline.t-black--light.break-words",
+                    "span.pv-text-details__left-panel--location",
+                    "span.text-body-small.inline.break-words"
+                ]
+                
+                for selector in location_selectors:
+                    try:
+                        location = self.driver.find_element(By.CSS_SELECTOR, selector)
+                        profile_data['location'] = location.text.strip()
+                        break
+                    except:
+                        continue
+                        
+                if 'location' not in profile_data:
+                    profile_data['location'] = ""
             except:
                 profile_data['location'] = ""
                 
-            # Get summary/about
+            # Get summary/about with improved extraction
             try:
-                see_more = self.driver.find_element(By.CSS_SELECTOR, "button.inline-show-more-text__button")
-                see_more.click()
-                about_section = self.driver.find_element(By.CSS_SELECTOR, "div.display-flex.ph5.pv3")
-                profile_data['summary'] = about_section.text.strip()
+                # Try to expand the about section if available
+                try:
+                    see_more_buttons = self.driver.find_elements(By.CSS_SELECTOR, "button.inline-show-more-text__button")
+                    for button in see_more_buttons:
+                        if "about" in button.get_attribute("innerHTML").lower():
+                            button.click()
+                            time.sleep(1)
+                            break
+                except:
+                    pass
+                    
+                # Try multiple selector approaches for about section
+                about_selectors = [
+                    "div.display-flex.ph5.pv3",
+                    "section.pv-about-section div.pv-shared-text-with-see-more",
+                    "div#about + div div.display-flex"
+                ]
+                
+                for selector in about_selectors:
+                    try:
+                        about_section = self.driver.find_element(By.CSS_SELECTOR, selector)
+                        profile_data['summary'] = about_section.text.strip()
+                        break
+                    except:
+                        continue
+                    
+                if 'summary' not in profile_data:
+                    profile_data['summary'] = ""
             except:
                 profile_data['summary'] = ""
                 
-            # Get experience section
+            # Get experience section with enhanced extraction
             profile_data['experiences'] = []
             try:
                 # First try to expand the experience section if needed
                 try:
-                    experience_section = self.driver.find_element(By.ID, "experience")
-                    experience_section.click()
-                    time.sleep(1)
+                    # Try clicking on the experience section to expand it
+                    experience_sections = self.driver.find_elements(By.XPATH, "//section[contains(@class, 'experience-section')] | //section[@id='experience']")
+                    if experience_sections:
+                        experience_sections[0].click()
+                        time.sleep(2)
                 except:
                     pass
                 
-                experience_elements = self.driver.find_elements(By.CSS_SELECTOR, "li.artdeco-list__item.pvs-list__item--line-separated")
+                # Try multiple selector approaches for experience items
+                experience_selectors = [
+                    "li.artdeco-list__item.pvs-list__item--line-separated",
+                    "section#experience ul.pvs-list li.pvs-list__item--line-separated",
+                    "div.pvs-entity"
+                ]
+                
+                experience_elements = []
+                for selector in experience_selectors:
+                    try:
+                        elements = self.driver.find_elements(By.CSS_SELECTOR, selector)
+                        if elements:
+                            experience_elements = elements
+                            logger.info(f"Found {len(elements)} experience elements using selector: {selector}")
+                            break
+                    except:
+                        continue
                 
                 for element in experience_elements:
                     try:
-                        company_element = element.find_element(By.CSS_SELECTOR, "span.t-14.t-normal")
-                        title_element = element.find_element(By.CSS_SELECTOR, "span.t-16.t-bold")
+                        # Try multiple ways to extract company and title
+                        company_name = ""
+                        title = ""
+                        description = ""
+                        company_url = ""
                         
-                        experience = {
-                            'company': company_element.text.strip(),
-                            'title': title_element.text.strip(),
-                            'description': '',
-                            'company_linkedin_url': ''
-                        }
-                        
-                        # Try to get the company LinkedIn URL
+                        # Check for company name and title in various formats
                         try:
-                            company_link = element.find_element(By.CSS_SELECTOR, "a.optional-action-target-wrapper")
-                            experience['company_linkedin_url'] = company_link.get_attribute('href')
+                            # Format 1: Title is bold, company is normal text
+                            title_element = element.find_element(By.CSS_SELECTOR, "span.t-16.t-bold, span.mr1.t-bold")
+                            company_element = element.find_element(By.CSS_SELECTOR, "span.t-14.t-normal, span.t-normal")
+                            
+                            title = title_element.text.strip()
+                            company_name = company_element.text.strip()
+                        except:
+                            try:
+                                # Format 2: Look for h3 for title and p for company
+                                title_element = element.find_element(By.CSS_SELECTOR, "h3")
+                                company_element = element.find_element(By.CSS_SELECTOR, "p.pv-entity__secondary-title")
+                                
+                                title = title_element.text.strip()
+                                company_name = company_element.text.strip()
+                            except:
+                                # Try other approaches
+                                all_spans = element.find_elements(By.TAG_NAME, "span")
+                                if len(all_spans) >= 2:
+                                    title = all_spans[0].text.strip()
+                                    company_name = all_spans[1].text.strip()
+                        
+                        # Try to get company URL if available
+                        try:
+                            links = element.find_elements(By.TAG_NAME, "a")
+                            for link in links:
+                                href = link.get_attribute("href")
+                                if href and "company" in href:
+                                    company_url = href
+                                    break
                         except:
                             pass
-                            
-                        profile_data['experiences'].append(experience)
-                    except Exception as e:
+                        
+                        # Try to get description if available
+                        try:
+                            desc_elements = element.find_elements(By.CSS_SELECTOR, "div.inline-show-more-text")
+                            if desc_elements:
+                                description = desc_elements[0].text.strip()
+                        except:
+                            pass
+                        
+                        # Only add if we have at least a company or title
+                        if company_name or title:
+                            experience = {
+                                'company': company_name,
+                                'title': title,
+                                'description': description,
+                                'company_linkedin_url': company_url
+                            }
+                            profile_data['experiences'].append(experience)
+                    except Exception as exp_error:
+                        logger.debug(f"Error processing experience element: {str(exp_error)}")
                         continue
             except Exception as e:
                 logger.warning(f"Error extracting experience data: {str(e)}")
+            
+            # Extract education if available
+            profile_data['education'] = []
+            try:
+                # Try to find and click on the education section
+                try:
+                    education_sections = self.driver.find_elements(By.XPATH, "//section[contains(@class, 'education-section')] | //section[@id='education']")
+                    if education_sections:
+                        education_sections[0].click()
+                        time.sleep(2)
+                except:
+                    pass
+                
+                education_elements = self.driver.find_elements(By.CSS_SELECTOR, "li.education__list-item, li.pvs-list__item--line-separated")
+                for element in education_elements:
+                    try:
+                        institution = ""
+                        degree = ""
+                        
+                        # Try to find institution and degree
+                        try:
+                            institution_element = element.find_element(By.CSS_SELECTOR, "h3.pv-entity__school-name, span.t-16.t-bold")
+                            institution = institution_element.text.strip()
+                        except:
+                            pass
+                        
+                        try:
+                            degree_element = element.find_element(By.CSS_SELECTOR, "p.pv-entity__degree-name, span.t-14.t-normal")
+                            degree = degree_element.text.strip()
+                        except:
+                            pass
+                        
+                        if institution:
+                            education = {
+                                'institution': institution,
+                                'degree': degree
+                            }
+                            profile_data['education'].append(education)
+                    except:
+                        continue
+            except:
+                pass
             
             return profile_data
             
         except Exception as e:
             logger.error(f"Error extracting LinkedIn profile data: {str(e)}")
             return None
+
+    def _scroll_profile_page(self):
+        """Helper method to scroll through the profile page to ensure all content is loaded"""
+        try:
+            # Scroll down in increments
+            total_height = self.driver.execute_script("return document.body.scrollHeight")
+            height = 0
+            increment = total_height / 8  # Divide into 8 steps
+            
+            while height < total_height:
+                height += increment
+                self.driver.execute_script(f"window.scrollTo(0, {height});")
+                time.sleep(random.uniform(0.5, 1.0))  # Random delay between scrolls
+                
+            # Scroll back to top
+            self.driver.execute_script("window.scrollTo(0, 0);")
+            time.sleep(1)
+        except Exception as e:
+            logger.debug(f"Error during page scrolling: {str(e)}")
     
     def close(self):
         """Close the Selenium WebDriver"""
@@ -555,12 +715,29 @@ class MessageGenerator:
     def summarize_company_data(self, founder_data, company_data):
         """Summarize all the data we have about the founder and company using Gemini"""
         try:
+            # Create a comprehensive founder summary with all available data
             founder_summary = {
                 'name': founder_data.get('full_name', ''),
                 'headline': founder_data.get('headline', ''),
                 'summary': founder_data.get('summary', ''),
-                'location': founder_data.get('location', '')
+                'location': founder_data.get('location', ''),
+                'primary_company': founder_data.get('primary_company', {}).get('name', ''),
+                'primary_title': founder_data.get('primary_company', {}).get('title', '')
             }
+            
+            # Include education if available
+            if 'education' in founder_data and founder_data['education']:
+                founder_summary['education'] = [
+                    f"{edu.get('degree', '')} from {edu.get('institution', '')}"
+                    for edu in founder_data['education']
+                ]
+            
+            # Include all experience details
+            if 'experiences' in founder_data and founder_data['experiences']:
+                founder_summary['experiences'] = [
+                    f"{exp.get('title', '')} at {exp.get('company', '')}" 
+                    for exp in founder_data['experiences'][:3]  # Limit to top 3
+                ]
             
             company_summary = {
                 'name': company_data.get('name', ''),
@@ -579,13 +756,20 @@ class MessageGenerator:
             prompt = f"""
             Please create a concise summary (max 150 words) about this founder and their company:
             
-            Founder: {json.dumps(founder_summary)}
+            Founder: {json.dumps(founder_summary, indent=2)}
             
-            Company: {json.dumps(company_summary)}
+            Company: {json.dumps(company_summary, indent=2)}
             
             {news_summary}
             
-            Focus on their current business, achievements, and any interesting points that would be relevant for a personalized outreach.
+            Focus on:
+            1. Their current business/startup and what problem it solves
+            2. The founder's background and specific achievements
+            3. Any unique aspects about their career or company
+            4. Recent news or developments
+            5. Their technical background if relevant for an AI/ML conversation
+            
+            Make it detailed and specific to this founder.
             """
             
             response = self.generation_model.generate_content(prompt)
@@ -594,24 +778,43 @@ class MessageGenerator:
         except Exception as e:
             logger.error(f"Error summarizing company data: {str(e)}")
             return f"Company: {company_data.get('name', '')}\nFounder: {founder_data.get('full_name', '')}"
-    
+
     def generate_personalized_message(self, founder_data, company_summary):
         """Generate a personalized outreach message using Gemini"""
         try:
             founder_name = founder_data.get('full_name', '').split()[0]  # Get first name
             
+            # Extract key details for personalization
+            company_name = founder_data.get('primary_company', {}).get('name', '')
+            if not company_name and 'experiences' in founder_data and founder_data['experiences']:
+                company_name = founder_data['experiences'][0].get('company', '')
+                
+            # Extract potential conversation hooks
+            hooks = []
+            if founder_data.get('summary'):
+                hooks.append("their company mission")
+            
+            if 'education' in founder_data and founder_data['education']:
+                hooks.append("their educational background")
+                
+            if 'experiences' in founder_data and len(founder_data['experiences']) > 1:
+                hooks.append("their career progression")
+                
+            hooks_str = ", ".join(hooks) if hooks else "their current work"
+            
             prompt = f"""
-            Create a personalized LinkedIn message to {founder_name}, based on this summary:
+            Create a personalized LinkedIn message to {founder_name}, based on this detailed summary:
             
             {company_summary}
             
             Requirements for the message:
             1. Keep it short (under 300 characters) and conversational
-            2. Mention a specific detail about their company or achievement
+            2. Mention a SPECIFIC detail about their company, background, or achievement
             3. Briefly introduce myself as an ML/AI engineer interested in their space
-            4. End with a simple question to start a conversation
+            4. End with a simple question related to {hooks_str} to start a conversation
             5. Make it feel authentic and not sales-y
             6. Don't use generic phrases like "I came across your profile" or "I'm impressed with your work"
+            7. Mention something SPECIFIC that demonstrates I've actually looked at their profile
             
             The message should be ready to copy and paste directly to LinkedIn.
             """
@@ -622,7 +825,9 @@ class MessageGenerator:
             # Check character limit for LinkedIn first messages (300)
             if len(message) > 300:
                 prompt = f"""
-                The previous message was too long. Please rewrite it to be under 300 characters while keeping it personalized and mentioning something specific about {founder_name}'s company.
+                The previous message was too long ({len(message)} chars). 
+                Please rewrite it to be under 300 characters while keeping it personalized,
+                mentioning something specific about {founder_name}'s work at {company_name}.
                 """
                 response = self.generation_model.generate_content(prompt)
                 message = response.text
@@ -631,7 +836,7 @@ class MessageGenerator:
             
         except Exception as e:
             logger.error(f"Error generating personalized message: {str(e)}")
-            return f"Hi {founder_data.get('full_name', '').split()[0]}, I'm an ML/AI engineer and noticed your work at {company_summary.split()[0] if company_summary else 'your company'}. Would love to connect and learn more about what you're building."
+            return f"Hi {founder_data.get('full_name', '').split()[0]}, I'm an ML/AI engineer and noticed your work at {company_name or 'your company'}. Would love to connect and learn more about what you're building."
 
 # Database operations class
 class DatabaseOps:
@@ -797,65 +1002,118 @@ class LinkedInOutreachPipeline:
         self.generator = MessageGenerator(self.config)
         self.db = DatabaseOps()
     
-    # Modified process_single_profile to accept a scraper instance
     def process_single_profile_with_scraper(self, profile_url, scraper_instance):
         """Process a single LinkedIn profile using a provided scraper instance."""
         try:
-            # Step 1: Use the provided scraper instance for login (it should handle cookies)
-            scraper_instance.login_to_linkedin() # Login should be handled by the instance
-
-            # Step 2: Extract LinkedIn profile data using the provided scraper instance
-            founder_data = scraper_instance.extract_profile_data(profile_url) # Use instance
+            # Extract LinkedIn profile data using the provided scraper instance
+            founder_data = scraper_instance.extract_profile_data(profile_url)
             if not founder_data:
                 logger.error("Failed to extract profile data")
                 return None
             
-            # Step 3: Extract company information
+            # Step 3: Extract company information with improved detection
             company_name = None
+            company_title = None
+            company_description = None
+            
+            # Check for founder positions in experience section
             if 'experiences' in founder_data and founder_data['experiences']:
-                # Look for founder/CEO positions first
-                founder_positions = ['founder', 'co-founder', 'ceo', 'chief executive officer']
+                # Look for founder/CEO positions first - expanded list of keywords
+                founder_positions = [
+                    'founder', 'co-founder', 'cofounder', 'ceo', 'chief executive', 
+                    'owner', 'president', 'managing director', 'director', 
+                    'entrepreneur', 'proprietor'
+                ]
                 
                 for exp in founder_data['experiences']:
-                    if any(position.lower() in exp.get('title', '').lower() for position in founder_positions):
+                    title = exp.get('title', '').lower()
+                    if any(position.lower() in title for position in founder_positions):
                         company_name = exp.get('company')
+                        company_title = exp.get('title')
+                        company_description = exp.get('description', '')
+                        logger.info(f"Found founder position: {company_title} at {company_name}")
                         break
                         
                 # If no founder position found, use the most recent company
                 if not company_name and founder_data['experiences']:
                     company_name = founder_data['experiences'][0].get('company')
+                    company_title = founder_data['experiences'][0].get('title')
+                    company_description = founder_data['experiences'][0].get('description', '')
+                    logger.info(f"Using most recent position: {company_title} at {company_name}")
             
+            # Try to extract from headline if experiences not available
             if not company_name:
-                # Try to extract from headline if experiences not available
                 headline = founder_data.get('headline', '')
-                if 'at' in headline.lower():
-                    company_name = headline.lower().split('at')[-1].strip()
+                
+                # Pattern matching for common headline formats
+                company_patterns = [
+                    r"(?:CEO|Founder|Co-Founder|Owner|Director)(?:\s+\&\s+)?(?:\w+\s+)?(?:at|of|@)\s+([^|,]+)",
+                    r"(?:at|@)\s+([^|,]+)",
+                    r"\|\s+([^|,]+)"
+                ]
+                
+                for pattern in company_patterns:
+                    match = re.search(pattern, headline, re.IGNORECASE)
+                    if match:
+                        company_name = match.group(1).strip()
+                        logger.info(f"Extracted company from headline: {company_name}")
+                        break
+            
+            # If still no company, check if company name appears in the summary
+            if not company_name and founder_data.get('summary'):
+                summary = founder_data.get('summary', '')
+                company_patterns = [
+                    r"(?:founded|started|co-founded|launched|created)\s+([A-Z][a-zA-Z0-9\s]+)(?:\.|,|\s+in)",
+                    r"(?:CEO|Founder|Co-Founder|Owner) of\s+([A-Z][a-zA-Z0-9\s]+)(?:\.|,|\s+)"
+                ]
+                
+                for pattern in company_patterns:
+                    match = re.search(pattern, summary)
+                    if match:
+                        company_name = match.group(1).strip()
+                        logger.info(f"Extracted company from summary: {company_name}")
+                        break
             
             if not company_name:
                 logger.warning("Could not identify company name")
-                company_name = "Unknown Company"
+                company_name = "their company"  # Better fallback than "Unknown Company"
+            
+            # Enhanced founder data with more details
+            enhanced_founder_data = founder_data.copy()
+            
+            # Add more context based on available data
+            if 'summary' not in enhanced_founder_data or not enhanced_founder_data['summary']:
+                enhanced_founder_data['summary'] = "No summary available"
+            
+            # Add company context
+            enhanced_founder_data['primary_company'] = {
+                'name': company_name,
+                'title': company_title,
+                'description': company_description
+            }
             
             # Step 4: Research company
             company_data = self.researcher.search_company_info(company_name)
             
             # Step 5: Save founder data to database
-            founder_id = self.db.save_founder_data(founder_data, profile_url)
+            founder_id = self.db.save_founder_data(enhanced_founder_data, profile_url)
             
             # Step 6: Save company data to database
+            company_data['title'] = company_title  # Add title to company data
             self.db.save_company_data(founder_id, company_data)
             
-            # Step 7: Summarize all data
-            company_summary = self.generator.summarize_company_data(founder_data, company_data)
+            # Step 7: Summarize all data with enhanced information
+            company_summary = self.generator.summarize_company_data(enhanced_founder_data, company_data)
             
-            # Step 8: Generate personalized message
-            personalized_message = self.generator.generate_personalized_message(founder_data, company_summary)
+            # Step 8: Generate personalized message with more context
+            personalized_message = self.generator.generate_personalized_message(enhanced_founder_data, company_summary)
             
             # Step 9: Save message to database
             message_id = self.db.save_message(founder_id, personalized_message)
             
             # Step 10: Return the results
             return {
-                'founder': founder_data,
+                'founder': enhanced_founder_data,
                 'company': company_data,
                 'summary': company_summary,
                 'message': personalized_message
