@@ -1,7 +1,6 @@
 import os
 from dotenv import load_dotenv
 load_dotenv()
-import argparse
 import requests
 import json
 import time
@@ -21,8 +20,6 @@ import logging
 import sqlite3
 import random
 from urllib.parse import quote_plus
-
-
 
 # Set up logging
 logging.basicConfig(
@@ -751,57 +748,44 @@ class MessageGenerator:
                 news_summary = "Recent news:\n"
                 for article in company_data['news']:
                     news_summary += f"- {article['title']}\n"
-            
-            # Use Gemini to create a concise summary
-            prompt = f"""
-                **Expert Founder & Company Summary for Personalized Outreach**
 
-                **Objective:** Generate a highly informative and actionable summary of a founder and their company (maximum 600 words). This summary will be used to craft a deeply personalized LinkedIn outreach message.
+            # New ultra-detailed prompt for Gemini Flash
+            prompt = f"""
+                **Deep Founder & Company Master Profile Summary for Ultra-Personalized Outreach**
+
+                **Objective:** Using the comprehensive dataset provided, generate an in-depth and data-rich profile that captures every dimension of the founder and their company. The output must be used as the basis for crafting a hyper-personalized LinkedIn outreach message.
 
                 **Input Data:**
 
-                * **Founder Profile Data:** {json.dumps(founder_summary, indent=2)} (Detailed information about the founder's background, experience, skills, and summary.)
-                * **Company Data:** {json.dumps(company_summary, indent=2)} (Information about the company, its description, website, and potentially recent news.)
-                * **Recent News (Optional):** {news_summary} (If available, recent news articles about the company.)
+                * **Founder Profile Data:** {json.dumps(founder_summary, indent=2)}
+                  - Data includes full name, headline, detailed summary, location, educational background, top 3 significant experiences, awards and recognitions, and any unique personal attributes.
+                * **Company Data:** {json.dumps(company_summary, indent=2)}
+                  - Data includes company name, a full description, website URL, core product/service, industry positioning, competitive advantages, and any quantifiable business achievements.
+                * **Supplementary Insights:** {news_summary}
+                  - Contains recent news articles and relevant market signals, including social media sentiment and strategic partnerships.
 
-                **Summary Focus - Extract Key Insights for Outreach:**
+                **Data Points to Emphasize:**
+                1. **Founder’s Detailed Biography & Achievements:**
+                   - Chronicle the founder’s career journey including key milestones, quantifiable successes (e.g., revenue growth, team leadership, technological breakthroughs), and personal awards.
+                   - Highlight educational achievements, pivotal career shifts, and unique personal traits or interests.
+                2. **Comprehensive Company Overview:**
+                   - Clearly define the company’s core mission, value proposition, and the problem it solves.
+                   - Include innovative aspects such as patent-pending technology, disruptive business model, or market positioning that sets it apart.
+                   - Integrate any quantifiable metrics (e.g., funding raised, growth rates) and recent notable developments.
+                3. **Synergistic Dynamics:**
+                   - Identify unique intersections between the founder’s expertise and the company’s strategic direction.
+                   - Detect subtle but significant details that would serve as conversation starters, such as niche industry insights or non-obvious achievements.
+                4. **Data Enrichment:**
+                   - Leverage every data element provided to ensure the summary is rich in context, factual details, and actionable insights.
 
-                1. **Core Business & Value Proposition:**
-                    * **Precisely describe the company's current business/startup.** What specific problem are they solving in the market? What is their core product or service?
-                    * **Highlight their *unique value proposition*.** What makes them stand out from competitors? What is innovative or particularly impactful about their approach?
+                **Output Requirements:**
+                - The summary must be highly detailed yet remain within a comprehensive 600-word limit.
+                - It should be actionable, fact-based, and structured into clear segments explaining the founder’s journey and the company’s value proposition.
+                - The tone must be professional, insightful, and tailored for immediately creating a personalized LinkedIn outreach message.
 
-                2. **Founder's Journey & Standout Achievements:**
-                    * **Summarize the founder's relevant background and career journey *leading up to their current role*.** Focus on experiences that shaped their expertise and vision.
-                    * **Pinpoint *2-3 specific, quantifiable achievements or notable experiences* from their background.**  Whenever possible, include metrics or specific examples to demonstrate impact (e.g., "Led a team that increased sales by 30%", "Developed a patented technology", "Raised $X million in funding").
-
-                3. **Unique Angles & "Intriguing Details":**
-                    * **Identify any *unique or particularly intriguing aspects* of the founder's career path or the company's story.**  This could be an unusual pivot, a remarkable early success, a strong mission-driven approach, or something that sparks genuine curiosity.
-                    * **Look for details that are *not immediately obvious* from a quick profile glance.** Dig deeper into their summary and experiences.
-
-                4. **Recent Momentum & "News Hooks":**
-                    * **If news is provided, highlight *key recent developments* or achievements mentioned in the news articles.** Focus on news that indicates current momentum or significant progress.
-                    * **Identify potential "news hooks"** – specific recent events or announcements that could be naturally referenced in an outreach message to show you're up-to-date.
-
-                5. **Technical Relevance for AI/ML Conversation (If Applicable):**
-                    * **If the founder or company is in the AI/ML space (or related), emphasize their technical background, relevant skills, or technical innovations.**
-                    * **Identify specific technical areas or projects that could be *natural starting points for a technical conversation* as an ML/AI engineer.**
-
-                **Output Style & Tone:**
-
-                * **Detailed yet Concise:** Aim for a summary that is rich in detail but still stays within the 600-word limit. Prioritize the *most impactful* information.
-                * **Actionable & Insight-Driven:** Focus on extracting insights that are *directly useful* for crafting personalized outreach messages. Think of it as creating a "cheat sheet" of key talking points.
-                * **Specific & Fact-Based:** Use specific details, examples, and quantifiable achievements whenever possible, rather than vague generalizations.
-                * **Structured for Readability (Implicit):** While not strictly required, subtly structure the summary to address each of the 5 focus areas, making it easier to parse and extract information later.
-
-                **Example of Desired Output (Illustrative - Text Summary):**
-
-                "Founder [Founder Name] is the CEO of [Company Name], a startup revolutionizing [Industry] with their innovative AI-powered platform for [Specific Problem Solved].  [Company Name]'s unique value proposition lies in [Key Differentiator, e.g., patent-pending algorithm, focus on sustainability, etc.].
-
-                [Founder Name]'s background includes [Number] years in [Industry], previously at [Previous Company] where they [Quantifiable Achievement, e.g., "led a team that launched 3 successful products," "grew user base by 200%"].  A particularly intriguing detail is [Unique Aspect, e.g., "their early career as a research scientist," "their passion for social impact," etc.].  Recent news highlights [Company Name]'s [Recent Achievement, e.g., "successful Series A funding round," "partnership with a major industry player," "award for innovation"].  Given their focus on [Specific AI/ML area, e.g., "computer vision," "NLP for healthcare," etc.], there's a strong technical angle for an AI/ML conversation."
-
-                **Generate the founder and company summary now, focusing on extracting the most actionable insights for personalized LinkedIn outreach.**
+                **Generate the comprehensive, multi-dimensional founder and company profile summary now, ensuring maximum data enrichment for ultra-personalized outreach.**
                 """
-            
+
             response = self.generation_model.generate_content(prompt)
             return response.text
             
@@ -833,51 +817,81 @@ class MessageGenerator:
             hooks_str = ", ".join(hooks) if hooks else "their current work"
             
             prompt = f"""
-            **LinkedIn Outreach Message Generation - Expert Level Personalization**
+           **// PROMPT START //**
 
-            **Objective:** Craft a highly personalized and engaging LinkedIn connection request message to {founder_name}, a founder, designed to initiate a genuine conversation and build a valuable connection.
+                    **Persona:** Act as an expert Business Analyst and Market Researcher equipped with web browsing capabilities. Your task is to synthesize complex, multi-source data *combined with targeted live web research* into a comprehensive and insightful dossier about a founder and their company. The goal is to create the richest, most current, factual foundation possible for crafting hyper-personalized strategic communications, specifically LinkedIn outreach.
 
-            **Key Information to Leverage:**
+                    **Objective:** Generate ONE highly detailed, structured, and insightful "Founder & Company Dossier" by deeply analyzing and synthesizing the provided static data sources *AND* augmenting this with findings from live web research (including the official company website). This dossier must serve as the definitive internal reference document for understanding `{founder_name}` and their company, enabling the extraction of unique angles for ultra-personalized outreach.
 
-            * **Founder's Name:** {founder_name}
-            * **Detailed Founder & Company Summary:** {company_summary} (This summary encapsulates key aspects of their company, background, and potentially recent achievements.)
-            * **Potential Conversation Hooks:** {hooks_str} (These are specific points of interest related to {founder_name}'s profile or company, such as recent projects, industry insights, shared interests, or relevant skills. Think of these as *conversation starters*.)
+                    **Input Data Variables (Static Base Data - DO NOT CHANGE THESE):**
 
-            **Message Requirements - Execute with Precision:**
+                    1.  `founder_summary` (JSON): Contains detailed structured data about the founder.
+                        ```json
+                        {json.dumps(founder_summary, indent=2)}
+                        ```
+                    2.  `company_summary` (JSON): Contains detailed structured data about the company, **critically including fields like 'website URL' and 'company name'.**
+                        ```json
+                        {json.dumps(company_summary, indent=2)}
+                        ```
+                    3.  `news_summary` (Text): Contains summaries of *potentially* recent news, market signals, social sentiment, and partnerships related to the founder or company (treat as potentially outdated snapshot).
+                        ```
+                        {news_summary}
+                        ```
 
-            1. **Conciseness is Paramount:**  The message MUST be under 500 characters. LinkedIn first messages are about brevity and impact.
+                    **Core Task: Deep Synthesis Augmented by Live Web Research**
 
-            2. **Hyper-Personalization - The Core:**
-                * **Insightful Detail Extraction:**  From the `company_summary`, identify and **weave in ONE genuinely insightful and *non-obvious* detail** about {founder_name}'s company, their background, or a recent achievement.  Go beyond surface-level information. Aim for something that shows you've *truly understood* their work.
-                * **Show, Don't Tell:**  Instead of saying "I'm impressed...", *demonstrate* your interest by subtly referencing this specific detail in a way that naturally leads to your introduction or question.
+                    1.  **Initial Analysis:** First, thoroughly analyze the static `founder_summary`, `company_summary`, and `news_summary`.
+                    2.  **Targeted Web Research (Perform Live):**
+                        *   **Company Website:** Extract the 'website URL' from the `company_summary` JSON. **Browse the official company website.** Focus on key sections like 'About Us', 'Products/Services', 'Blog', 'Press/News', 'Careers', and 'Leadership/Team'. Look for mission statements, value propositions, recent announcements, product updates, case studies, and founder quotes/bios not present in the static data.
+                        *   **General Web Search:** Perform web searches for:
+                            *   Recent news articles about "[Company Name from company_summary]" (beyond what's in `news_summary`).
+                            *   Recent interviews, articles, or blog posts by or about `{founder_name}`.
+                            *   Verify funding information, key partnerships, or significant recent milestones mentioned in static data or discovered online.
+                        *   *(Note: If web browsing fails or yields limited results, rely primarily on the provided static data but indicate where research was attempted.)*
+                    3.  **Integrated Synthesis:** Synthesize findings from *both* the static input data *and* your live web research. Connect the dots, identify patterns, quantify achievements (using the most recent data found), and highlight nuances. Prioritize information confirmed by recent live web findings, but note significant discrepancies with the static data if found.
 
-            3. **Authentic Introduction - Value-Driven, Not Self-Serving:**
-                * **Brief & Relevant Intro:** Introduce yourself *concisely* as an ML/AI engineer. Immediately pivot to expressing your genuine interest in *their* space and *their* work.  Focus on what you find valuable about *their* contributions.
-                * **Avoid Generic Self-Promotion:**  Absolutely NO generic phrases like "I'm an expert in..." or lengthy self-descriptions. Keep the focus on {founder_name} and their company.
+                    **Detailed Synthesis Instructions & Output Structure (Follow Rigorously, Integrating Web Findings):**
 
-            4. **Strategic Conversation Starter - Leverage 'hooks_str':**
-                * **Thought-Provoking Question:** Craft a *single, thought-provoking question* that **directly stems** from the *most compelling* conversation hook in `{hooks_str}`.
-                * **Relevance is Key:** Ensure the question feels highly relevant to {founder_name}'s current work, industry, or stated interests.
-                * **Open-Ended and Engaging:**  The question should invite {founder_name} to share their perspective, insights, or experiences, rather than just a yes/no answer.
+                    Generate the dossier using Markdown formatting with the following specific sections:
 
-            5. **Tone - Genuinely Curious & Respectful:**
-                * **Conversational & Natural:**  Maintain a warm, human, and conversational tone.  Imagine you are briefly reaching out to a respected peer in your field.
-                * **Value-Driven, Not Sales-y:** The message should convey genuine curiosity and a desire to learn and connect, *not* a hidden sales agenda or transactional motive.
+                    **`## 1. Founder Profile: {founder_name}`**
+                        *   **Narrative Arc:** Synthesize the chronological career narrative using `founder_summary`. **Augment with any relevant details or perspectives found in recent interviews/articles from web research.**
+                        *   **Quantifiable Achievements:** Extract/list metrics from `founder_summary`. **Update or add new metrics based on verified web research findings.** Infer scale if necessary.
+                        *   **Expertise & Skills:** Summarize core expertise using `founder_summary`. **Refine or add context based on how their expertise is presented on the company website or in recent articles.**
+                        *   **Unique Attributes:** Note traits/interests from `founder_summary`. **Add any publicly stated philosophies, recent quotes, or relevant personal updates found online.**
+                        *   **Recent Signals:** Integrate relevant points from `news_summary` and **prioritize/supplement with more current findings from web searches about the founder.**
 
-            6. **Negative Constraints - Absolutely Avoid:**
-                * **No Generic Openers:**  CRUCIALLY, avoid generic openers like "I came across your profile," "I'm impressed with your profile," or any similar bland phrases.
-                * **No Flattery for Flattery's Sake:**  Avoid superficial flattery or generic compliments.  Personalization should feel genuine, not like empty praise.
-                * **No Immediate Asks/Demands:**  Do not ask for anything in the first message (advice, job referrals, etc.). The goal is connection, not immediate favors.
+                    **`## 2. Company Profile: [Company Name from company_summary]`**
+                        *   **Core Identity:** Articulate mission/vision/problem solved using `company_summary`. **Refine using the 'About Us' or mission statement directly from the browsed company website for the most current articulation.**
+                        *   **Value Proposition & USP:** Detail product/service and USPs from `company_summary`. **Enhance with specific feature details, current product descriptions, or case study examples found on the website.** Note any evolution found online.
+                        *   **Market Context:** Describe industry positioning using `company_summary`. **Add any new competitors identified or market context updates discovered via web research.**
+                        *   **Traction & Milestones:** List achievements from `company_summary` and `news_summary`. **Verify and update with the latest funding rounds, partnerships, user numbers, or significant milestones announced on the company website's news/press section or found in recent reputable web sources.**
+                        *   **Recent Developments:** Summarize key events from `news_summary`. **Replace or significantly augment with the most recent announcements, product launches, strategic shifts, or market sentiment gathered directly from the company website and web searches.**
 
-            7. **Output - LinkedIn Ready:** The generated message MUST be perfectly formatted and ready to copy and paste directly into a LinkedIn connection request message box.
+                    **`## 3. Key Synergies & Strategic Insights`**
+                        *   **Founder-Company Alignment:** Identify connections between the founder (Section 1, including web findings) and the company (Section 2, including web findings). **Focus on how recently discovered founder activities/statements align with current company direction found online.**
+                        *   **Non-Obvious Observations:** Highlight subtle points derived from synthesizing *across all data sources (static + live web)*. **Look for discrepancies between older static data and newer web findings, potential pivots, or newly emphasized strategic themes.**
+                        *   **Data Consistency & Recency Check:** Explicitly comment on the consistency between the static inputs and live web findings. Note key areas where web research provided significant updates or clarifications.
 
-            **Example of 'hooks_str' variable content (Illustrative - you will dynamically generate this):**
+                    **`## 4. Potential Outreach Angles (Actionable Hooks - Based on Latest Info)`**
+                        *   **Extract 3-5 Specific & Unique Hooks:** Based *primarily on the most current and insightful findings* from Sections 1, 2, and 3 (giving weight to web research findings), list distinct, non-generic conversation starters.
+                            *   *Example Hook 1:* Recent blog post/announcement on the company website regarding [Specific Topic] and its connection to [Founder's Expertise].
+                            *   *Example Hook 2:* A specific challenge/opportunity mentioned in a recent interview with `{founder_name}` found online.
+                            *   *Example Hook 3:* The evolution of [Company Product/Service] as seen on the website compared to older descriptions, perhaps asking about the driving force.
+                            *   *Example Hook 4:* A newly announced partnership/milestone and its implications for the company's mission.
 
-            \`\`\`
-            hooks_str = "potential conversation hooks: recent project in sustainable AI, blog post on ethical ML, mentioned interest in industry collaborations, skills in explainable AI"
-            \`\`\`
+                    **Quality & Formatting Requirements:**
 
-            **Generate the LinkedIn message now, adhering strictly to ALL requirements above.**
+                    *   **Depth & Recency:** Be comprehensive. Integrate information seamlessly from static inputs *and* live web research. Prioritize accuracy and recency.
+                    *   **Conciseness:** Adhere strictly to a maximum **~600-word limit** (allow slight flexibility if crucial new web data warrants it, but remain focused). Use bullet points.
+                    *   **Objectivity & Sourcing:** Base the summary on evidence. Briefly note if information comes specifically from recent web findings vs. static data where relevant (e.g., "Website states...", "Recent interview mentioned...").
+                    *   **Structure:** Use the exact Markdown section headers provided.
+                    *   **Actionability:** Ensure Section 4 provides concrete, current, specific hooks.
+                    *   **Tone:** Maintain a professional, analytical, objective tone (Sections 1-3). Section 4 frames engagement points.
+
+                    **Generate the comprehensive, research-augmented Founder & Company Dossier now, synthesizing the provided static data (`founder_summary`, `company_summary`, `news_summary`) AND incorporating findings from live web research according to all instructions.**
+
+                    **// PROMPT END //**
             """
             
             response = self.generation_model.generate_content(prompt)
@@ -1205,7 +1219,7 @@ class LinkedInOutreachPipeline:
             results = []
             for profile in profiles:
                 logger.info(f"Processing profile: {profile}")
-                result = self.process_single_profile(profile)
+                result = self.process_single_profile_with_scraper(profile, self.scraper)
                 if result:
                     results.append(result)
                 time.sleep(random.uniform(5, 10))  # Random delay between profiles
@@ -1219,77 +1233,12 @@ class LinkedInOutreachPipeline:
             logger.error(f"Error processing batch from CSV: {str(e)}")
             return False
         finally:
-            # Ensure we close the browser
-            self.scraper.close()
+            # We don't close the scraper here as it might be reused in the app
+            pass
     
     def cleanup(self):
         """Clean up resources"""
         self.scraper.close()
 
-def main():
-    parser = argparse.ArgumentParser(description='LinkedIn Founder Outreach Pipeline')
-    parser.add_argument('--profile', help='URL of the founder\'s LinkedIn profile')
-    parser.add_argument('--batch', help='CSV file containing LinkedIn profile URLs')
-    parser.add_argument('--export', action='store_true', help='Export all messages to CSV')
-    args = parser.parse_args()
-    
-    pipeline = LinkedInOutreachPipeline()
-    
-    try:
-        if args.profile:
-            # Process a single profile
-            result = pipeline.process_single_profile(args.profile)
-            
-            if result:
-                print("\n" + "="*80)
-                print("FOUNDER INFORMATION")
-                print("="*80)
-                print(f"Name: {result['founder'].get('full_name', '')}")
-                print(f"Headline: {result['founder'].get('headline', '')}")
-                print(f"Location: {result['founder'].get('location', '')}")
-                
-                print("\n" + "="*80)
-                print("COMPANY SUMMARY")
-                print("="*80)
-                print(result['summary'])
-                
-                print("\n" + "="*80)
-                print("PERSONALIZED LINKEDIN MESSAGE")
-                print("="*80)
-                print(result['message'])
-                print("="*80)
-                print(f"\nCharacter count: {len(result['message'])} (LinkedIn limit: 500 for first message)")
-                
-                # Save to file
-                with open('linkedin_message.txt', 'w', encoding='utf-8') as f:
-                    f.write(result['message'])
-                
-                print("\nMessage saved to linkedin_message.txt")
-                
-        elif args.batch:
-            # Process multiple profiles from CSV
-            success = pipeline.process_batch_from_csv(args.batch)
-            if success:
-                print("Batch processing completed. Results exported to linkedin_messages.csv")
-            else:
-                print("Error processing batch")
-                
-        elif args.export:
-            # Export all messages to CSV
-            success = pipeline.db.export_messages_to_csv()
-            if success:
-                print("Messages exported to linkedin_messages.csv")
-            else:
-                print("Error exporting messages")
-                
-        else:
-            print("Please provide either --profile, --batch, or --export parameter")
-            
-    except Exception as e:
-        logger.error(f"Error in main: {str(e)}")
-        
-    finally:
-        pipeline.cleanup()
-
-if __name__ == "__main__":
-    main()
+# Initialize database at module level for app access
+init_database()
