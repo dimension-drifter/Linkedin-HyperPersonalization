@@ -106,49 +106,71 @@ class LinkedInScraper:
         self.setup_selenium()
         
     def setup_selenium(self):
-        """Optimized Selenium setup for faster performance"""
+        """Set up Selenium WebDriver for LinkedIn scraping with improved SSL handling"""
         chrome_options = Options()
-        chrome_options.add_argument("--headless")
+        chrome_options.add_argument("--headless=new")  # Use newer headless mode
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
         
-        # Critical speed optimizations
-        chrome_options.add_argument("--disable-extensions")
-        chrome_options.add_argument("--disable-gpu")
-        chrome_options.add_argument("--disable-notifications")
+        # Enhanced SSL error handling
+        chrome_options.add_argument("--ignore-certificate-errors")
+        chrome_options.add_argument("--ignore-ssl-errors")
+        chrome_options.add_argument("--allow-insecure-localhost")
+        chrome_options.add_argument("--disable-web-security")
+        chrome_options.add_argument("--allow-running-insecure-content")
         
-        # Disable images and other resource loading (massive speedup)
-        chrome_options.add_argument("--blink-settings=imagesEnabled=false")
-        prefs = {
-            "profile.default_content_setting_values": {
-                "images": 2,       # Block images
-                "plugins": 2,      # Block plugins
-                "popups": 2,       # Block popups
-                "geolocation": 2,  # Block geolocation
-                "notifications": 2 # Block notifications
-            },
-            "profile.managed_default_content_settings.javascript": 1  # Allow JavaScript
-        }
-        chrome_options.add_experimental_option("prefs", prefs)
+        # Add TLS version specification
+        chrome_options.add_argument("--ssl-version-max=tls1.3")
+        chrome_options.add_argument("--ssl-version-min=tls1.2")
         
-        # Existing anti-detection code...
+        # Make it harder for LinkedIn to detect automation
         chrome_options.add_argument("--disable-blink-features=AutomationControlled")
         chrome_options.add_argument(f"user-agent={random.choice(self.config.user_agents)}")
+        chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        chrome_options.add_experimental_option("useAutomationExtension", False)
         
-        # Set up Chrome driver
-        self.driver = webdriver.Chrome(
-            service=Service(ChromeDriverManager().install()),
-            options=chrome_options
-        )
+        # Set up Chrome driver with service_args to avoid SSL issues
+        service = Service(ChromeDriverManager().install())
+        service.service_args = ['--verbose', '--log-path=chromedriver.log']
         
-        # Execute CDP commands to make automation less detectable
-        self.driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
-            "source": """
-            Object.defineProperty(navigator, 'webdriver', {
-                get: () => undefined
+        try:
+            self.driver = webdriver.Chrome(
+                service=service,
+                options=chrome_options
+            )
+            
+            # Execute CDP commands to make automation less detectable
+            self.driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
+                "source": """
+                Object.defineProperty(navigator, 'webdriver', {
+                    get: () => undefined
+                });
+                Object.defineProperty(navigator, 'plugins', {
+                    get: () => [1, 2, 3, 4, 5]
+                });
+                """
             })
-            """
-        })
+            
+            # Increase default page load timeout
+            self.driver.set_page_load_timeout(60)
+            
+        except Exception as e:
+            logger.error(f"Error setting up Chrome driver: {str(e)}")
+            # Fallback options with even more SSL bypassing
+            chrome_options.add_argument("--disable-gpu")
+            chrome_options.add_argument("--disable-extensions")
+            chrome_options.add_argument("--disable-features=IsolateOrigins")
+            chrome_options.add_argument("--disable-site-isolation-trials")
+            
+            try:
+                self.driver = webdriver.Chrome(
+                    service=service,
+                    options=chrome_options
+                )
+                logger.info("Using fallback Chrome options")
+            except Exception as fallback_error:
+                logger.critical(f"Fatal error creating Chrome driver: {str(fallback_error)}")
+                raise
     
     LINKEDIN_COOKIES_FILE = "linkedin_cookies.json" # Define a file to store cookies
 
@@ -234,9 +256,15 @@ class LinkedInScraper:
                 
                 # Navigate to feed to check login status
                 logger.info("Checking if we're logged in...")
-                self.driver.get("https://www.linkedin.com/feed/")
-                time.sleep(5)  # Allow more time to load
-                
+                try:
+                    self.driver.get("https://www.linkedin.com/feed/")
+                    time.sleep(5)  # Allow more time to load
+                except Exception as e:
+                    logger.warning(f"Error navigating to feed: {str(e)}")
+                    # Try an alternative URL
+                    self.driver.get("https://www.linkedin.com/")
+                    time.sleep(5)
+                    
                 # Check for login success indicators
                 try:
                     # Check multiple indicators of successful login
@@ -264,45 +292,59 @@ class LinkedInScraper:
             
             # Clear cookies and cache before trying credentials
             self.driver.delete_all_cookies()
-            self.driver.get("chrome://settings/clearBrowserData")
-            time.sleep(2)
             
-            # Go to login page with a clean state
-            self.driver.get("https://www.linkedin.com/login")
-            time.sleep(3)
+            # Go to login page with a clean state and retry mechanism
+            max_attempts = 3
+            for attempt in range(max_attempts):
+                try:
+                    logger.info(f"Login attempt {attempt+1}/{max_attempts}")
+                    self.driver.get("https://www.linkedin.com/login")
+                    time.sleep(5)  # Longer wait for page to load
+                    break
+                except Exception as e:
+                    logger.warning(f"Error navigating to login page: {str(e)}")
+                    if attempt < max_attempts - 1:
+                        logger.info("Retrying navigation...")
+                        time.sleep(3)
+                    else:
+                        logger.error("Failed to navigate to login page after multiple attempts")
+                        return False
             
             # Wait for login form and enter credentials
             try:
-                username_field = WebDriverWait(self.driver, 10).until(
+                username_field = WebDriverWait(self.driver, 15).until(
                     EC.presence_of_element_located((By.ID, "username"))
                 )
                 username_field.clear()
+                time.sleep(1)
                 username_field.send_keys(self.config.linkedin_email)
                 
                 password_field = self.driver.find_element(By.ID, "password")
                 password_field.clear()
+                time.sleep(1)
                 password_field.send_keys(self.config.linkedin_password)
+                time.sleep(1)
                 
                 self.driver.find_element(By.CSS_SELECTOR, "button[type='submit']").click()
                 
                 # Add a random delay to simulate human behavior
-                time.sleep(random.uniform(3, 5))
+                time.sleep(random.uniform(5, 8))
                 
                 # Check for login success
-                for _ in range(3):  # Try a few times with delays
+                for _ in range(5):  # Try more times with longer delays
                     try:
-                        WebDriverWait(self.driver, 5).until(
+                        WebDriverWait(self.driver, 8).until(
                             EC.presence_of_element_located((By.ID, "global-nav"))
                         )
                         logger.info("Successfully logged into LinkedIn with credentials")
                         self._save_cookies()  # Save cookies after successful login
                         return True
                     except:
-                        time.sleep(2)  # Wait and retry
+                        time.sleep(3)  # Longer wait between retries
                         
                 logger.warning("LinkedIn login might have failed. Limited access.")
                 return False
-                
+                    
             except Exception as login_error:
                 logger.error(f"Error during login process: {str(login_error)}")
                 return False
@@ -312,29 +354,22 @@ class LinkedInScraper:
             return False
     
     def extract_profile_data(self, profile_url):
-        """Extract data from a LinkedIn profile with dynamic waits"""
+        """Extract data from a LinkedIn profile with enhanced detail extraction"""
         logger.info(f"Extracting data from LinkedIn profile: {profile_url}")
         
         try:
-            # First check cache
-            cached_profile = self.get_cached_profile(profile_url)
-            if cached_profile:
-                logger.info("Using cached profile data")
-                return cached_profile
-            
             # Navigate to the profile
             self.driver.get(profile_url)
+            # Add a longer wait to ensure page fully loads (LinkedIn can be slow)
+            logger.info("Waiting for profile page to fully load...")
+            time.sleep(random.uniform(5, 8))  # Increased wait time
             
-            # Wait for specific elements instead of fixed sleep
-            try:
-                # Wait for name to appear - a good indicator the profile has loaded
-                WebDriverWait(self.driver, 10).until(
-                    EC.presence_of_element_located((By.CSS_SELECTOR, 
-                        "h1.text-heading-xlarge, h1.inline.t-24.t-black.t-normal.break-words"))
-                )
-            except:
-                logger.warning("Timed out waiting for profile page to load")
-                
+            # After navigation, check if we're actually on a profile page
+            current_url = self.driver.current_url
+            if "linkedin.com/in/" not in current_url:
+                logger.warning(f"Not on a profile page. Current URL: {current_url}")
+                return None
+            
             # Scroll through the page to load all content
             self._scroll_profile_page()
             
@@ -601,20 +636,21 @@ class LinkedInScraper:
             return None
 
     def _scroll_profile_page(self):
-        """Optimized profile scrolling - much faster than before"""
+        """Helper method to scroll through the profile page to ensure all content is loaded"""
         try:
-            # Get page height
+            # Scroll down in increments
             total_height = self.driver.execute_script("return document.body.scrollHeight")
+            height = 0
+            increment = total_height / 8  # Divide into 8 steps
             
-            # Use fewer scroll steps (3 instead of 8)
-            steps = 3
-            for i in range(steps):
-                # Scroll in bigger chunks
-                self.driver.execute_script(f"window.scrollTo(0, {(i+1) * total_height / steps});")
-                # Much shorter wait between scrolls
-                time.sleep(0.3)
-            
-            # No need to scroll back to top - saves time
+            while height < total_height:
+                height += increment
+                self.driver.execute_script(f"window.scrollTo(0, {height});")
+                time.sleep(random.uniform(0.5, 1.0))  # Random delay between scrolls
+                
+            # Scroll back to top
+            self.driver.execute_script("window.scrollTo(0, 0);")
+            time.sleep(1)
         except Exception as e:
             logger.debug(f"Error during page scrolling: {str(e)}")
     
@@ -628,43 +664,49 @@ class CompanyResearcher:
     def __init__(self, config):
         self.config = config
     
-    def search_company_info(self, company_name, fast_mode=False):
-        """Search for company information with speed optimizations"""
+    def search_company_info(self, company_name):
+        """Search for company information using free APIs and web scraping"""
         logger.info(f"Researching company: {company_name}")
-        
-        # Set a short timeout
-        timeout = 3  # seconds
-        
         company_info = {
             'name': company_name,
-            'website': self._find_company_website(company_name, timeout),
-            'description': self._get_company_description(company_name, timeout),
-            'news': []  # Skip news by default in fast mode
+            'website': self._find_company_website(company_name),
+            'news': self._get_news_articles(company_name),
+            'description': self._get_company_description(company_name)
         }
-        
-        # Only get news in normal mode (not fast mode)
-        if not fast_mode:
-            company_info['news'] = self._get_news_articles(company_name, timeout)
-        
         return company_info
-
-    def _find_company_website(self, company_name, timeout=3):
-        """Find company website with timeout"""
+    
+    def _find_company_website(self, company_name):
+        """Find company website using DuckDuckGo search"""
         try:
+            # Encode company name for URL
             encoded_query = quote_plus(f"{company_name} official website")
             url = f"https://html.duckduckgo.com/html/?q={encoded_query}"
             
-            headers = {'User-Agent': random.choice(self.config.user_agents)}
-            response = requests.get(url, headers=headers, timeout=timeout)
-            # Rest of code...
-        except requests.exceptions.Timeout:
-            logger.warning(f"Timeout finding website for {company_name}")
+            headers = {
+                'User-Agent': random.choice(self.config.user_agents)
+            }
+            
+            response = requests.get(url, headers=headers)
+            if response.status_code == 200:
+                soup = BeautifulSoup(response.text, 'html.parser')
+                results = soup.find_all('a', {'class': 'result__url'})
+                
+                # Filter out common non-company websites
+                excluded_domains = ['linkedin.com', 'facebook.com', 'twitter.com', 'instagram.com', 
+                                   'crunchbase.com', 'bloomberg.com', 'wikipedia.org']
+                
+                for result in results:
+                    link = result.get('href', '')
+                    # Check if this is likely the company website (not social media, etc)
+                    if not any(domain in link for domain in excluded_domains):
+                        return link
+            
             return ""
         except Exception as e:
             logger.error(f"Error finding company website: {str(e)}")
             return ""
-
-    def _get_news_articles(self, company_name, timeout=3):
+    
+    def _get_news_articles(self, company_name):
         """Get news articles about the company using free News API"""
         try:
             # Using GDELT's free news search via Webhose
@@ -675,7 +717,7 @@ class CompanyResearcher:
                 'User-Agent': random.choice(self.config.user_agents)
             }
             
-            response = requests.get(url, headers=headers, timeout=timeout)
+            response = requests.get(url, headers=headers)
             articles = []
             
             if response.status_code == 200:
@@ -691,7 +733,7 @@ class CompanyResearcher:
             logger.error(f"Error fetching news: {str(e)}")
             return []
     
-    def _get_company_description(self, company_name, timeout=3):
+    def _get_company_description(self, company_name):
         """Get company description from web search"""
         try:
             # Use DuckDuckGo to get a summary
@@ -702,7 +744,7 @@ class CompanyResearcher:
                 'User-Agent': random.choice(self.config.user_agents)
             }
             
-            response = requests.get(url, headers=headers, timeout=timeout)
+            response = requests.get(url, headers=headers)
             if response.status_code == 200:
                 soup = BeautifulSoup(response.text, 'html.parser')
                 snippets = soup.find_all('a', {'class': 'result__snippet'})
