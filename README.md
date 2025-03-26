@@ -1,6 +1,21 @@
 # LinkedIn Hyper-Personalized Outreach Tool
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![Streamlit](https://img.shields.io/badge/Streamlit-FF4B4B?logo=streamlit&logoColor=white)](https://streamlit.io/)
+
 This tool leverages web scraping and generative AI to process LinkedIn profiles, gather relevant information about individuals and their companies, and generate hyper-personalized outreach messages suitable for connection requests or initial contact. It features a Streamlit web interface for easy interaction.
+
+## Table of Contents
+- [Overview](#overview)
+- [Features](#features)
+- [Tech Stack](#tech-stack)
+- [Setup and Installation](#setup-and-installation)
+- [Usage](#usage)
+- [How It Works](#how-it-works)
+- [Important Considerations](#important-considerations--disclaimer)
+- [Contributing](#contributing)
+- [License](#license)
 
 ## Overview
 
@@ -14,7 +29,7 @@ The primary goal of this project is to streamline the process of crafting person
 6.  **Data Storage:** Saves processed founder data, company information, and generated messages into an SQLite database.
 7.  **User Interface:** Provides a Streamlit web application to process single profiles, batch process multiple URLs, view historical messages, track sent status, and export data.
 
-## Features
+## ✨ Features
 
 *   **Streamlit Web Interface:** Easy-to-use UI for processing and viewing data.
 *   **Secure LinkedIn Login:** Handles login using provided credentials and manages session cookies.
@@ -30,7 +45,14 @@ The primary goal of this project is to streamline the process of crafting person
 *   **CSV Export:** Download the history of generated messages, including their 'sent' status.
 *   **Logging:** Records processing steps and potential errors in `linkedin_outreach.log`.
 
-## Tech Stack
+## 🎯 Why Use This Tool?
+
+- **Save Time**: Automate research that would take hours manually
+- **Higher Response Rate**: Genuinely personalized messages get better results
+- **Easy to Use**: Simple web interface requires no coding knowledge
+- **Data Privacy**: All data stays on your local machine
+
+## 🔧 Tech Stack
 
 *   **Backend:** Python 3
 *   **Web Framework:** Streamlit
@@ -41,12 +63,12 @@ The primary goal of this project is to streamline the process of crafting person
 *   **Configuration:** python-dotenv
 *   **Data Handling:** Pandas
 
-## Setup and Installation
+## 🚀 Setup and Installation
 
 1.  **Clone the Repository:**
     ```bash
-    git clone https://github.com/your-username/linkedin-outreach-tool.git
-    cd linkedin-outreach-tool
+    git clone https://github.com/dimension-drifter/Linkedin-HyperPersonalization.git
+    cd Linkedin-HyperPersonalization
     ```
 
 2.  **Create a Virtual Environment (Recommended):**
@@ -69,7 +91,7 @@ The primary goal of this project is to streamline the process of crafting person
 4.  **Initialize Database (Automatic):**
     The SQLite database (`linkedin_outreach.db`) and necessary tables will be created automatically the first time `main.py` or `app.py` is run.
 
-## Usage
+## 📊 Usage
 
 1.  **Ensure your virtual environment is activated.**
 2.  **Run the Streamlit application:**
@@ -93,11 +115,13 @@ The primary goal of this project is to streamline the process of crafting person
 6.  **Storage:** `DatabaseOps` handles writing founder data, company details, and the generated message into the respective SQLite tables.
 7.  **UI Interaction:** `app.py` uses Streamlit to create the user interface, handle inputs, call the `LinkedInOutreachPipeline` methods, and display results fetched from the database or live processing.
 
-## Important Considerations & Disclaimer
+## 📷 Demo
 
-*   **Ethical Use:** Use the generated messages ethically and genuinely. Avoid spamming. The goal is *personalized* outreach, not mass messaging.
-*   **Rate Limiting:** LinkedIn imposes rate limits. The batch processing includes delays, but processing too many profiles too quickly can still trigger blocks.
-*   **Data Accuracy:** Information scraped from LinkedIn or the web may not always be up-to-date or entirely accurate. Company research is basic and relies on public search results.
+![Demo Link](path/to/screenshot.png)
+*Caption: Youtube Video demo of working project*
+
+![Results Example](path/to/results-screenshot.png)
+*Caption: Example of a generated personalized message*
 
 ## Contributing
 
