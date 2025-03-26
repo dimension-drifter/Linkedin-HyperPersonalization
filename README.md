@@ -1,7 +1,7 @@
 # LinkedIn Hyper-Personalization
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![Streamlit](https://img.shields.io/badge/Streamlit-FF4B4B?logo=streamlit&logoColor=white)](https://streamlit.io/)
 
 This tool leverages web scraping and generative AI to process LinkedIn profiles, gather relevant information about individuals and their companies, and generate hyper-personalized outreach messages suitable for connection requests or initial contact. It features a Streamlit web interface for easy interaction.
