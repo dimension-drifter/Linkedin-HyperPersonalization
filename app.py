@@ -6,8 +6,24 @@ import time
 
 st.set_page_config(page_title="LinkedIn Hyper-Personalized Outreach", page_icon="🔗", layout="wide")
 
-st.title("LinkedIn Hyper-Personalized Outreach")
-st.caption("Process LinkedIn profiles and generate hyper-personalized outreach messages")
+# Add a more visually appealing header with columns
+col1, col2 = st.columns([1, 3])
+with col1:
+    st.image("https://cdn-icons-png.flaticon.com/512/174/174857.png", width=100)
+with col2:
+    st.title("LinkedIn Hyper-Personalized Outreach")
+    st.caption("Process LinkedIn profiles and generate hyper-personalized outreach messages")
+
+st.markdown("""
+<style>
+    .main-header {
+        background-color: #f0f2f6;
+        padding: 1.5rem;
+        border-radius: 0.5rem;
+        margin-bottom: 1rem;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 st.markdown("---")
 
@@ -196,20 +212,136 @@ if st.session_state.logged_in:
     with tabs[2]:
         st.header("Generated Messages History")
         
-        if st.button("Export to CSV"):
-            with st.spinner("Exporting messages..."):
-                if db_ops.export_messages_to_csv():
-                    st.success("Messages exported to linkedin_messages.csv")
-                else:
-                    st.error("Error exporting messages. Check logs.")
+        # Initialize session state for tracking deleted profiles
+        if 'deleted_profiles' not in st.session_state:
+            st.session_state.deleted_profiles = set()
         
-        messages = db_ops.get_all_messages()
+        # Check for deletion action from previous interaction
+        if 'delete_message_id' in st.session_state:
+            msg_id = st.session_state.delete_message_id
+            name = st.session_state.delete_name
+            if db_ops.delete_profile(int(msg_id)):
+                st.success(f"Profile for {name} deleted successfully!")
+                # Remove from session state
+                if msg_id in st.session_state.sent_messages:
+                    del st.session_state.sent_messages[msg_id]
+                # Add to deleted profiles set (as a backup)
+                st.session_state.deleted_profiles.add(str(msg_id))
+            else:
+                st.error("Failed to delete profile. See logs for details.")
+            
+            # Clear the deletion state
+            del st.session_state.delete_message_id
+            del st.session_state.delete_name
+            
+            # Re-fetch messages after deletion
+            messages = db_ops.get_all_messages()
+        else:
+            # Normal flow - fetch all messages
+            messages = db_ops.get_all_messages()
+        
         if messages:
+            # Initialize session state for tracking sent messages if not exists
+            if 'sent_messages' not in st.session_state:
+                st.session_state.sent_messages = {}
+            
             # Create a DataFrame and display it
             messages_df = pd.DataFrame(messages)
             
+            # Add message_id column if not present for tracking
+            if 'id' not in messages_df.columns:
+                messages_df['id'] = messages_df.index.astype(str)
+            
+            # Create a temporary dataframe with sent status for display
+            display_df = messages_df.copy()
+            display_df['sent'] = False
+            
+            # Update with session state values
+            for idx, row in display_df.iterrows():
+                msg_id = str(row.get('id', idx))
+                if msg_id in st.session_state.sent_messages:
+                    display_df.at[idx, 'sent'] = st.session_state.sent_messages[msg_id]
+            
+            # Show each message with a checkbox
+            st.subheader("Track Your Outreach")
+            st.caption("Check the box once you've sent the message")
+            
+            delete_occurred = False
+            
+            # Iterate through a copy to avoid modification issues during iteration
+            for idx, row in display_df.iterrows():
+                msg_id = str(row.get('id', idx))
+                
+                # Skip if this profile has been marked for deletion
+                if (msg_id in st.session_state.deleted_profiles or 
+                    ('pending_delete' in st.session_state and msg_id == st.session_state.pending_delete)):
+                    continue
+                
+                name = row.get('full_name', 'Unknown')
+                company = row.get('company_name', 'Unknown')
+                
+                col1, col2, col3 = st.columns([1, 8, 1])
+                with col1:
+                    is_sent = st.checkbox(
+                        "✓", 
+                        value=st.session_state.sent_messages.get(msg_id, False),
+                        key=f"sent_{msg_id}",
+                        help="Mark as sent"
+                    )
+                    # Update session state when checkbox changes
+                    st.session_state.sent_messages[msg_id] = is_sent
+                    # Update display dataframe
+                    display_df.at[idx, 'sent'] = is_sent
+                
+                with col2:
+                    st.markdown(f"**{name}** - {company}")
+                
+                with col3:
+                    # Add delete button with immediate visual feedback
+                    if st.button("🗑️", key=f"delete_{msg_id}", help="Delete this profile"):
+                        # Mark for immediate deletion in UI
+                        st.session_state.pending_delete = msg_id
+                        # Store for actual database operation in next run
+                        st.session_state.delete_message_id = msg_id
+                        st.session_state.delete_name = name
+                        # Also add to our persistent deleted set
+                        st.session_state.deleted_profiles.add(msg_id)
+                        delete_occurred = True
+            
+            # If a deletion occurred, rerun to update UI immediately
+            if delete_occurred:
+                st.rerun()
+            
+            # Generate CSV for download including sent status
+            @st.cache_data
+            def convert_df_to_csv(df):
+                return df.to_csv(index=False).encode('utf-8')
+            
+            # Add sent status to the export
+            export_df = messages_df.copy()
+            export_df['message_sent'] = False
+            
+            # Update with session state values for export
+            for idx, row in export_df.iterrows():
+                msg_id = str(row.get('id', idx))
+                if msg_id in st.session_state.sent_messages:
+                    export_df.at[idx, 'message_sent'] = st.session_state.sent_messages[msg_id]
+            
+            csv_data = convert_df_to_csv(export_df)
+            
+            # Add download button
+            st.download_button(
+                label="📥 Download as CSV (Includes Sent Status)",
+                data=csv_data,
+                file_name="linkedin_messages.csv",
+                mime="text/csv",
+                help="Click to download all messages as a CSV file with sent status"
+            )
+            
+            # Standard table view of all messages
+            st.subheader("All Messages")
             st.dataframe(
-                messages_df,
+                display_df,
                 column_config={
                     "full_name": "Name",
                     "company_name": "Company",
@@ -219,7 +351,7 @@ if st.session_state.logged_in:
                         "Generated On",
                         format="MM/DD/YYYY, HH:mm"
                     ),
-            
+                    "sent": st.column_config.CheckboxColumn("Sent ✓")
                 },
                 use_container_width=True,
                 hide_index=True
@@ -229,4 +361,10 @@ if st.session_state.logged_in:
 
     # Simple footer
     st.markdown("---")
-    st.caption("LinkedIn Personalization | Built with Streamlit")
+    col1, col2, col3 = st.columns([1,2,1])
+    with col2:
+        st.markdown("""
+        <div style='text-align: center; color: #888888;'>
+            <p>LinkedIn Personalization Tool | Built with ❤️ using Streamlit</p>
+        </div>
+        """, unsafe_allow_html=True)

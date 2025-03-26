@@ -864,7 +864,7 @@ class MessageGenerator:
                    - Leverage every data element provided to ensure the summary is rich in context, factual details, and actionable insights.
 
                 **Output Requirements:**
-                - The summary must be highly detailed yet remain within a comprehensive 600-word limit.
+                - The summary must be highly detailed yet remain within a comprehensive 450-word limit.
                 - It should be actionable, fact-based, and structured into clear segments explaining the founder’s journey and the company’s value proposition.
                 - The tone must be professional, insightful, and tailored for immediately creating a personalized LinkedIn outreach message.
 
@@ -884,9 +884,9 @@ class MessageGenerator:
             founder_name = founder_data.get('full_name', '').split()[0]  # Get first name
             company_name = founder_data.get('primary_company', {}).get('name', 'their company')
 
-            # *** SIMPLIFIED PROMPT ***
+            
             prompt = f"""
-            **Objective:** Generate a **highly personalized and insightful** LinkedIn connection request message (strictly under 500 characters) to {founder_name}, the leader of {company_name}. The message must demonstrate genuine interest based on specific details from the provided summary.
+            **Objective:** Generate a **highly personalized and insightful** LinkedIn connection request message (strictly under 600 characters) to {founder_name}, the leader of {company_name}. The message must demonstrate genuine interest based on specific details from the provided summary.
 
             **Sender Persona (Implicit):** Assume the sender has a background or strong interest relevant to the founder's industry or technology (e.g., ML/AI, business strategy, specific market sector). Frame the connection point from this perspective.
 
@@ -912,7 +912,7 @@ class MessageGenerator:
                 *   Express a clear, concise, and genuine call to action (e.g., "Would love to connect and follow your journey," "Interested to learn more about your work in this area," "Hope to connect.").
                 *   Maintain a respectful, curious, and concise tone throughout.
             5.  **Constraint Checklist:**
-                *   Strictly under 500 characters.
+                *   Strictly under 600 characters.
                 *   Mentions {founder_name} by name.
                 *   References a *specific* detail from the `{company_summary}`.
                 *   Implies or states sender relevance/interest.
@@ -934,11 +934,11 @@ class MessageGenerator:
             response = self.generation_model.generate_content(prompt)
             message = response.text
             
-            # Check character limit for LinkedIn first messages (500)
-            if len(message) > 500:
+            # Check character limit for LinkedIn first messages (600)
+            if len(message) > 600:
                 prompt = f"""
                 The previous message was too long ({len(message)} chars). 
-                Please rewrite it to be under 500 characters while keeping it personalized,
+                Please rewrite it to be under 600 characters while keeping it personalized,
                 mentioning something specific about {founder_name}'s work at {company_name}.
                 """
                 response = self.generation_model.generate_content(prompt)
@@ -1098,6 +1098,45 @@ class DatabaseOps:
         except Exception as e:
             logger.error(f"Error exporting messages to CSV: {str(e)}")
             return False
+
+    def delete_profile(self, message_id):
+        """Delete a profile and its associated message from the database"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        try:
+            # First get the founder_id associated with this message
+            cursor.execute("SELECT founder_id FROM messages WHERE id = ?", (message_id,))
+            result = cursor.fetchone()
+            
+            if not result:
+                logger.warning(f"Message ID {message_id} not found")
+                return False
+                
+            founder_id = result[0]
+            
+            # Delete the message
+            cursor.execute("DELETE FROM messages WHERE id = ?", (message_id,))
+            
+            # Check if this founder has any remaining messages
+            cursor.execute("SELECT COUNT(*) FROM messages WHERE founder_id = ?", (founder_id,))
+            count = cursor.fetchone()[0]
+            
+            # If no more messages, delete the founder and company data too
+            if count == 0:
+                cursor.execute("DELETE FROM companies WHERE founder_id = ?", (founder_id,))
+                cursor.execute("DELETE FROM founders WHERE id = ?", (founder_id,))
+                
+            conn.commit()
+            logger.info(f"Successfully deleted message ID {message_id} and associated data")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error deleting profile: {str(e)}")
+            conn.rollback()
+            return False
+        finally:
+            conn.close()
 
 # Main pipeline class
 class LinkedInOutreachPipeline:

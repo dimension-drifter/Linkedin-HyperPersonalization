@@ -1,0 +1,9 @@
+linkedin_message.txt
+linkedin_outreach.db
+linkedin_outreach.log
+.env
+/chrome_data
+linkedin_cookies.json
+/__pycache__
+linkedin_messages.csv
+chromedriver.log
