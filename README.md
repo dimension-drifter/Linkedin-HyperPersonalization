@@ -1,4 +1,4 @@
-# LinkedIn Hyper-Personalized Outreach Tool
+# LinkedIn Hyper-Personalization
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
@@ -110,7 +110,7 @@ The primary goal of this project is to streamline the process of crafting person
 ![Demo Link](path/to/screenshot.png)
 *Caption: Youtube Video demo of working project*
 
-[![Streamlit Interface](![image](https://github.com/user-attachments/assets/bca8c543-2a99-4bc8-8abe-1d31843e1267)
+![Streamlit Interface](https://github.com/user-attachments/assets/bca8c543-2a99-4bc8-8abe-1d31843e1267)
 *The main interface for processing LinkedIn profiles*
 
 ## Contributing
