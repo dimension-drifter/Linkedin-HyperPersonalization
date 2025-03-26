@@ -47,7 +47,6 @@ The primary goal of this project is to streamline the process of crafting person
 *   **Backend:** Python 3
 *   **Web Framework:** Streamlit
 *   **Web Scraping:** Selenium, BeautifulSoup4, webdriver-manager
-*   **AI:** Google Generative AI SDK (`google-generativeai`)
 *   **HTTP Requests:** Requests
 *   **Database:** SQLite3
 *   **Configuration:** python-dotenv
