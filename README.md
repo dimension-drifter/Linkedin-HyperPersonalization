@@ -8,12 +8,12 @@ This tool leverages web scraping and generative AI to process LinkedIn profiles,
 
 ## Table of Contents
 - [Overview](#overview)
-- [Features](#features)
-- [Tech Stack](#tech-stack)
-- [Setup and Installation](#setup-and-installation)
-- [Usage](#usage)
+- [Features](#✨Features)
+- [Tech Stack](#🔧-Tech-Stack)
+- [Setup and Installation](#🚀-Setup-and-Installation)
+- [Usage](#📊-Usage)
 - [How It Works](#how-it-works)
-- [Important Considerations](#important-considerations--disclaimer)
+- [Demo](#📷-Demo)
 - [Contributing](#contributing)
 - [License](#license)
 
@@ -29,7 +29,7 @@ The primary goal of this project is to streamline the process of crafting person
 6.  **Data Storage:** Saves processed founder data, company information, and generated messages into an SQLite database.
 7.  **User Interface:** Provides a Streamlit web application to process single profiles, batch process multiple URLs, view historical messages, track sent status, and export data.
 
-## ✨ Features
+## ✨Features
 
 *   **Streamlit Web Interface:** Easy-to-use UI for processing and viewing data.
 *   **Secure LinkedIn Login:** Handles login using provided credentials and manages session cookies.
@@ -45,14 +45,14 @@ The primary goal of this project is to streamline the process of crafting person
 *   **CSV Export:** Download the history of generated messages, including their 'sent' status.
 *   **Logging:** Records processing steps and potential errors in `linkedin_outreach.log`.
 
-## 🎯 Why Use This Tool?
+## 🎯Why Use This Tool?
 
 - **Save Time**: Automate research that would take hours manually
 - **Higher Response Rate**: Genuinely personalized messages get better results
 - **Easy to Use**: Simple web interface requires no coding knowledge
 - **Data Privacy**: All data stays on your local machine
 
-## 🔧 Tech Stack
+## 🔧Tech Stack
 
 *   **Backend:** Python 3
 *   **Web Framework:** Streamlit
@@ -120,8 +120,8 @@ The primary goal of this project is to streamline the process of crafting person
 ![Demo Link](path/to/screenshot.png)
 *Caption: Youtube Video demo of working project*
 
-![Results Example](path/to/results-screenshot.png)
-*Caption: Example of a generated personalized message*
+![Streamlit Interface](![image](https://github.com/user-attachments/assets/bca8c543-2a99-4bc8-8abe-1d31843e1267)
+*Caption: The main interface for processing LinkedIn profiles*
 
 ## Contributing
 
