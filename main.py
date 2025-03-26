@@ -119,9 +119,16 @@ class LinkedInScraper:
         chrome_options.add_argument("--disable-web-security")
         chrome_options.add_argument("--allow-running-insecure-content")
         
-        # Add TLS version specification
-        chrome_options.add_argument("--ssl-version-max=tls1.3")
-        chrome_options.add_argument("--ssl-version-min=tls1.2")
+        # Remove specific TLS version settings (these can cause issues with handshakes)
+        # chrome_options.add_argument("--ssl-version-max=tls1.3")
+        # chrome_options.add_argument("--ssl-version-min=tls1.2")
+        
+        # Add Chrome's built-in cipher suite preference
+        chrome_options.add_argument("--cipher-suite-blacklist=0x0088,0x0087,0x0039,0x0038,0x0044,0x0045,0x0066,0x0032,0x0033,0x0016,0x0013")
+        
+        # Fix for common certificate issues
+        chrome_options.add_argument("--disable-software-rasterizer")
+        chrome_options.add_argument("--disable-features=NetworkService")
         
         # Make it harder for LinkedIn to detect automation
         chrome_options.add_argument("--disable-blink-features=AutomationControlled")
@@ -161,6 +168,9 @@ class LinkedInScraper:
             chrome_options.add_argument("--disable-extensions")
             chrome_options.add_argument("--disable-features=IsolateOrigins")
             chrome_options.add_argument("--disable-site-isolation-trials")
+            
+            # Use a more compatible SSL configuration in fallback
+            chrome_options.add_argument("--ssl-version-fallback-min=tls1")
             
             try:
                 self.driver = webdriver.Chrome(
@@ -357,6 +367,26 @@ class LinkedInScraper:
         """Extract data from a LinkedIn profile with enhanced detail extraction"""
         logger.info(f"Extracting data from LinkedIn profile: {profile_url}")
         
+        # Add retry mechanism for handling SSL/connection issues
+        max_retries = 3
+        retry_delay = 3
+        
+        for attempt in range(max_retries):
+            try:
+                # Navigate to the profile
+                self.driver.get(profile_url)
+                # Wait for page to load
+                time.sleep(random.uniform(5, 8))
+                break
+            except Exception as e:
+                logger.warning(f"Attempt {attempt+1}/{max_retries} failed: {str(e)}")
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay)
+                    retry_delay *= 2  # Exponential backoff
+                else:
+                    logger.error(f"Failed to load profile after {max_retries} attempts")
+                    return None
+                    
         try:
             # Navigate to the profile
             self.driver.get(profile_url)
@@ -852,101 +882,53 @@ class MessageGenerator:
         """Generate a personalized outreach message using Gemini"""
         try:
             founder_name = founder_data.get('full_name', '').split()[0]  # Get first name
-            
-            # Extract key details for personalization
-            company_name = founder_data.get('primary_company', {}).get('name', '')
-            if not company_name and 'experiences' in founder_data and founder_data['experiences']:
-                company_name = founder_data['experiences'][0].get('company', '')
-                
-            # Extract potential conversation hooks
-            hooks = []
-            if founder_data.get('summary'):
-                hooks.append("their company mission")
-            
-            if 'education' in founder_data and founder_data['education']:
-                hooks.append("their educational background")
-                
-            if 'experiences' in founder_data and len(founder_data['experiences']) > 1:
-                hooks.append("their career progression")
-                
-            hooks_str = ", ".join(hooks) if hooks else "their current work"
-            
+            company_name = founder_data.get('primary_company', {}).get('name', 'their company')
+
+            # *** SIMPLIFIED PROMPT ***
             prompt = f"""
-           **// PROMPT START //**
+            **Objective:** Generate a **highly personalized and insightful** LinkedIn connection request message (strictly under 500 characters) to {founder_name}, the leader of {company_name}. The message must demonstrate genuine interest based on specific details from the provided summary.
 
-                    **Persona:** Act as an expert Business Analyst and Market Researcher equipped with web browsing capabilities. Your task is to synthesize complex, multi-source data *combined with targeted live web research* into a comprehensive and insightful dossier about a founder and their company. The goal is to create the richest, most current, factual foundation possible for crafting hyper-personalized strategic communications, specifically LinkedIn outreach.
+            **Sender Persona (Implicit):** Assume the sender has a background or strong interest relevant to the founder's industry or technology (e.g., ML/AI, business strategy, specific market sector). Frame the connection point from this perspective.
 
-                    **Objective:** Generate ONE highly detailed, structured, and insightful "Founder & Company Dossier" by deeply analyzing and synthesizing the provided static data sources *AND* augmenting this with findings from live web research (including the official company website). This dossier must serve as the definitive internal reference document for understanding `{founder_name}` and their company, enabling the extraction of unique angles for ultra-personalized outreach.
+            **Core Task:** Synthesize the provided summary to extract **unique, non-obvious points of resonance** or **specific achievements/challenges** that genuinely capture the sender's interest. Avoid surface-level observations.
 
-                    **Input Data Variables (Static Base Data - DO NOT CHANGE THESE):**
+            **Recipient:** {founder_name}
+            **Recipient's Company:** {company_name}
 
-                    1.  `founder_summary` (JSON): Contains detailed structured data about the founder.
-                        ```json
-                        {json.dumps(founder_summary, indent=2)}
-                        ```
-                    2.  `company_summary` (JSON): Contains detailed structured data about the company, **critically including fields like 'website URL' and 'company name'.**
-                        ```json
-                        {json.dumps(company_summary, indent=2)}
-                        ```
-                    3.  `news_summary` (Text): Contains summaries of *potentially* recent news, market signals, social sentiment, and partnerships related to the founder or company (treat as potentially outdated snapshot).
-                        ```
-                        {news_summary}
-                        ```
+            **Detailed Founder & Company Summary (Source for Deep Personalization):**
+            --- START SUMMARY ---
+            {company_summary}
+            --- END SUMMARY ---
 
-                    **Core Task: Deep Synthesis Augmented by Live Web Research**
+            **Instructions for Message Generation:**
 
-                    1.  **Initial Analysis:** First, thoroughly analyze the static `founder_summary`, `company_summary`, and `news_summary`.
-                    2.  **Targeted Web Research (Perform Live):**
-                        *   **Company Website:** Extract the 'website URL' from the `company_summary` JSON. **Browse the official company website.** Focus on key sections like 'About Us', 'Products/Services', 'Blog', 'Press/News', 'Careers', and 'Leadership/Team'. Look for mission statements, value propositions, recent announcements, product updates, case studies, and founder quotes/bios not present in the static data.
-                        *   **General Web Search:** Perform web searches for:
-                            *   Recent news articles about "[Company Name from company_summary]" (beyond what's in `news_summary`).
-                            *   Recent interviews, articles, or blog posts by or about `{founder_name}`.
-                            *   Verify funding information, key partnerships, or significant recent milestones mentioned in static data or discovered online.
-                        *   *(Note: If web browsing fails or yields limited results, rely primarily on the provided static data but indicate where research was attempted.)*
-                    3.  **Integrated Synthesis:** Synthesize findings from *both* the static input data *and* your live web research. Connect the dots, identify patterns, quantify achievements (using the most recent data found), and highlight nuances. Prioritize information confirmed by recent live web findings, but note significant discrepancies with the static data if found.
+            1.  **Deep Analysis:** Scrutinize the entire summary. Look beyond headlines for specific projects, unique approaches, stated values, career pivots, recent milestones, or challenges mentioned.
+            2.  **Identify Unique Hook:** Pinpoint 1 (maximum 2) **specific and compelling detail** that stands out. Ask yourself: "What detail is least likely to be mentioned by others?" or "What connects most strongly to the sender's assumed background/interest?"
+            3.  **Establish Relevance (Crucial):** Briefly explain *why* this specific detail caught your attention, connecting it implicitly or explicitly to the sender's persona/interest (e.g., "As someone focused on [Sender's Area], I was particularly interested in your approach to [Specific Detail]...").
+            4.  **Draft Message:**
+                *   Start warmly and professionally: "Hi {founder_name},"
+                *   Immediately reference the **specific unique hook** identified. (e.g., "I read the summary about your work at {company_name} and was fascinated by the mention of [Specific Detail from Summary]..." or "Your perspective on [Specific Topic from Summary] really resonated...")
+                *   Briefly state the **relevance** or the connection to the sender's interest.
+                *   Express a clear, concise, and genuine call to action (e.g., "Would love to connect and follow your journey," "Interested to learn more about your work in this area," "Hope to connect.").
+                *   Maintain a respectful, curious, and concise tone throughout.
+            5.  **Constraint Checklist:**
+                *   Strictly under 500 characters.
+                *   Mentions {founder_name} by name.
+                *   References a *specific* detail from the `{company_summary}`.
+                *   Implies or states sender relevance/interest.
+                *   Professional, genuine, and curious tone.
 
-                    **Detailed Synthesis Instructions & Output Structure (Follow Rigorously, Integrating Web Findings):**
+            **What to AVOID:**
+            *   Generic praise ("Great work!", "Impressed by your company").
+            *   Simply stating the company name or founder's title without a specific hook.
+            *   Vague interest ("Interested in your industry").
+            *   Anything that sounds like a template.
+            *   Exceeding the character limit.
 
-                    Generate the dossier using Markdown formatting with the following specific sections:
+            **Enhanced Example Structure:**
+            "Hi {founder_name}, I came across the summary detailing your journey with {company_name}. As someone working in [Sender's Field, e.g., scalable AI systems], I was particularly struck by your team's approach to [Specific Unique Detail from Summary, e.g., implementing federated learning for X]. Would be great to connect and follow how that develops."
 
-                    **`## 1. Founder Profile: {founder_name}`**
-                        *   **Narrative Arc:** Synthesize the chronological career narrative using `founder_summary`. **Augment with any relevant details or perspectives found in recent interviews/articles from web research.**
-                        *   **Quantifiable Achievements:** Extract/list metrics from `founder_summary`. **Update or add new metrics based on verified web research findings.** Infer scale if necessary.
-                        *   **Expertise & Skills:** Summarize core expertise using `founder_summary`. **Refine or add context based on how their expertise is presented on the company website or in recent articles.**
-                        *   **Unique Attributes:** Note traits/interests from `founder_summary`. **Add any publicly stated philosophies, recent quotes, or relevant personal updates found online.**
-                        *   **Recent Signals:** Integrate relevant points from `news_summary` and **prioritize/supplement with more current findings from web searches about the founder.**
-
-                    **`## 2. Company Profile: [Company Name from company_summary]`**
-                        *   **Core Identity:** Articulate mission/vision/problem solved using `company_summary`. **Refine using the 'About Us' or mission statement directly from the browsed company website for the most current articulation.**
-                        *   **Value Proposition & USP:** Detail product/service and USPs from `company_summary`. **Enhance with specific feature details, current product descriptions, or case study examples found on the website.** Note any evolution found online.
-                        *   **Market Context:** Describe industry positioning using `company_summary`. **Add any new competitors identified or market context updates discovered via web research.**
-                        *   **Traction & Milestones:** List achievements from `company_summary` and `news_summary`. **Verify and update with the latest funding rounds, partnerships, user numbers, or significant milestones announced on the company website's news/press section or found in recent reputable web sources.**
-                        *   **Recent Developments:** Summarize key events from `news_summary`. **Replace or significantly augment with the most recent announcements, product launches, strategic shifts, or market sentiment gathered directly from the company website and web searches.**
-
-                    **`## 3. Key Synergies & Strategic Insights`**
-                        *   **Founder-Company Alignment:** Identify connections between the founder (Section 1, including web findings) and the company (Section 2, including web findings). **Focus on how recently discovered founder activities/statements align with current company direction found online.**
-                        *   **Non-Obvious Observations:** Highlight subtle points derived from synthesizing *across all data sources (static + live web)*. **Look for discrepancies between older static data and newer web findings, potential pivots, or newly emphasized strategic themes.**
-                        *   **Data Consistency & Recency Check:** Explicitly comment on the consistency between the static inputs and live web findings. Note key areas where web research provided significant updates or clarifications.
-
-                    **`## 4. Potential Outreach Angles (Actionable Hooks - Based on Latest Info)`**
-                        *   **Extract 3-5 Specific & Unique Hooks:** Based *primarily on the most current and insightful findings* from Sections 1, 2, and 3 (giving weight to web research findings), list distinct, non-generic conversation starters.
-                            *   *Example Hook 1:* Recent blog post/announcement on the company website regarding [Specific Topic] and its connection to [Founder's Expertise].
-                            *   *Example Hook 2:* A specific challenge/opportunity mentioned in a recent interview with `{founder_name}` found online.
-                            *   *Example Hook 3:* The evolution of [Company Product/Service] as seen on the website compared to older descriptions, perhaps asking about the driving force.
-                            *   *Example Hook 4:* A newly announced partnership/milestone and its implications for the company's mission.
-
-                    **Quality & Formatting Requirements:**
-
-                    *   **Depth & Recency:** Be comprehensive. Integrate information seamlessly from static inputs *and* live web research. Prioritize accuracy and recency.
-                    *   **Conciseness:** Adhere strictly to a maximum **~600-word limit** (allow slight flexibility if crucial new web data warrants it, but remain focused). Use bullet points.
-                    *   **Objectivity & Sourcing:** Base the summary on evidence. Briefly note if information comes specifically from recent web findings vs. static data where relevant (e.g., "Website states...", "Recent interview mentioned...").
-                    *   **Structure:** Use the exact Markdown section headers provided.
-                    *   **Actionability:** Ensure Section 4 provides concrete, current, specific hooks.
-                    *   **Tone:** Maintain a professional, analytical, objective tone (Sections 1-3). Section 4 frames engagement points.
-
-                    **Generate the comprehensive, research-augmented Founder & Company Dossier now, synthesizing the provided static data (`founder_summary`, `company_summary`, `news_summary`) AND incorporating findings from live web research according to all instructions.**
-
-                    **// PROMPT END //**
+            **Generate the hyper-personalized connection request message now, adhering strictly to all instructions and constraints.**
             """
             
             response = self.generation_model.generate_content(prompt)
