@@ -6,16 +6,6 @@
 
 This tool leverages web scraping and generative AI to process LinkedIn profiles, gather relevant information about individuals and their companies, and generate hyper-personalized outreach messages suitable for connection requests or initial contact. It features a Streamlit web interface for easy interaction.
 
-## Table of Contents
-- [Overview](#overview)
-- [Features](#✨Features)
-- [Tech Stack](#🔧-Tech-Stack)
-- [Setup and Installation](#🚀-Setup-and-Installation)
-- [Usage](#📊-Usage)
-- [How It Works](#how-it-works)
-- [Demo](#📷-Demo)
-- [Contributing](#contributing)
-- [License](#license)
 
 ## Overview
 
@@ -120,8 +110,8 @@ The primary goal of this project is to streamline the process of crafting person
 ![Demo Link](path/to/screenshot.png)
 *Caption: Youtube Video demo of working project*
 
-![Streamlit Interface](![image](https://github.com/user-attachments/assets/bca8c543-2a99-4bc8-8abe-1d31843e1267)
-*Caption: The main interface for processing LinkedIn profiles*
+[![Streamlit Interface](![image](https://github.com/user-attachments/assets/bca8c543-2a99-4bc8-8abe-1d31843e1267)
+*The main interface for processing LinkedIn profiles*
 
 ## Contributing
 
