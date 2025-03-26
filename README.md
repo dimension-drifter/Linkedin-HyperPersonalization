@@ -111,11 +111,10 @@ The primary goal of this project is to streamline the process of crafting person
 *Caption: Youtube Video demo of working project*
 
 ![Streamlit Interface](https://github.com/user-attachments/assets/bca8c543-2a99-4bc8-8abe-1d31843e1267)
+![image](https://github.com/user-attachments/assets/1d648222-ef2d-48da-b272-4e03251e9fb4)
+
 *The main interface for processing LinkedIn profiles*
 
-## Contributing
-
-Contributions are welcome! Please feel free to submit pull requests or open issues for bugs, feature requests, or improvements.
 
 ## License
 
