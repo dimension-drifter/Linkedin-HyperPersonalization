@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: linkedin-hyper-personalization
+    runtime: docker
+    repo: https://github.com/dimension-drifter/Linkedin-HyperPersonalization 
+    branch: render 
+    dockerfilePath: ./Dockerfile 
+     # - PYTHONUNBUFFERED=1 # Good for logging
+    envVars:
+      - key: PYTHONUNBUFFERED 
+        value: 1
+      # Render automatically sets the PORT env var, Streamlit uses it.
+    healthCheckPath: /healthz # Streamlit's default health check endpoint
+    disk: 
+      name: data
+      mountPath: /app 
+      sizeGB: 1
