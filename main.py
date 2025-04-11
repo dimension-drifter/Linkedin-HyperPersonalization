@@ -182,7 +182,7 @@ class LinkedInScraper:
                 logger.critical(f"Fatal error creating Chrome driver: {str(fallback_error)}")
                 raise
     
-    LINKEDIN_COOKIES_FILE = "linkedin_cookies.json" # Define a file to store cookies
+    LINKEDIN_COOKIES_FILE = "/etc/secrets/linkedin_cookies.json" # Define a file to store cookies
 
     def _save_cookies(self):
         """Save browser cookies to a file."""
