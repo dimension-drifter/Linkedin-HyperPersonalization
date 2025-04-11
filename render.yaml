@@ -2,6 +2,7 @@ services:
   - type: web
     name: linkedin-hyper-personalization
     runtime: docker
+    plan: free
     repo: https://github.com/dimension-drifter/Linkedin-HyperPersonalization 
     branch: render 
     dockerfilePath: ./Dockerfile 
