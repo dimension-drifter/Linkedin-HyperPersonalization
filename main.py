@@ -20,6 +20,7 @@ import logging
 import sqlite3
 import random
 from urllib.parse import quote_plus
+from selenium.common.exceptions import TimeoutException # Import TimeoutException
 
 # Set up logging
 logging.basicConfig(
@@ -108,6 +109,7 @@ class LinkedInScraper:
     def setup_selenium(self):
         """Set up Selenium WebDriver for LinkedIn scraping with improved SSL handling"""
         chrome_options = Options()
+        chrome_options.binary_location = "/usr/bin/google-chrome" 
         chrome_options.add_argument("--headless=new")  # Use newer headless mode
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
@@ -137,9 +139,18 @@ class LinkedInScraper:
         chrome_options.add_experimental_option("useAutomationExtension", False)
         
         # Set up Chrome driver with service_args to avoid SSL issues
-        service = Service(ChromeDriverManager().install())
-        service.service_args = ['--verbose', '--log-path=chromedriver.log']
-        
+        try:
+            # Try installing the driver first
+            driver_path = ChromeDriverManager().install()
+            service = Service(driver_path)
+            service.service_args = ['--verbose', '--log-path=chromedriver.log']
+        except Exception as e:
+             logger.error(f"Error installing/finding chromedriver: {e}. Ensure Chrome is installed in the container.")
+             # If running in Docker, chromedriver might be expected at a specific path
+             # Try a default path if manager fails
+             service = Service('/usr/bin/chromedriver') # Adjust path if necessary
+             service.service_args = ['--verbose', '--log-path=chromedriver.log']
+
         try:
             self.driver = webdriver.Chrome(
                 service=service,
@@ -158,8 +169,10 @@ class LinkedInScraper:
                 """
             })
             
-            # Increase default page load timeout
-            self.driver.set_page_load_timeout(60)
+            # Increase default page load timeout significantly
+            self.driver.set_page_load_timeout(120) # Increased from 60 to 120 seconds
+            # Add an implicit wait (wait for elements to appear for a certain time)
+            self.driver.implicitly_wait(10) # Wait up to 10 seconds for elements by default
             
         except Exception as e:
             logger.error(f"Error setting up Chrome driver: {str(e)}")
@@ -178,6 +191,9 @@ class LinkedInScraper:
                     options=chrome_options
                 )
                 logger.info("Using fallback Chrome options")
+                # Apply timeouts to fallback driver too
+                self.driver.set_page_load_timeout(120)
+                self.driver.implicitly_wait(10)
             except Exception as fallback_error:
                 logger.critical(f"Fatal error creating Chrome driver: {str(fallback_error)}")
                 raise
@@ -262,40 +278,58 @@ class LinkedInScraper:
                 # After adding cookies, refresh and navigate to feed
                 logger.info("Cookies added, refreshing page...")
                 self.driver.refresh()
-                time.sleep(3)
-                
+                time.sleep(5) # Increased sleep after refresh
+
                 # Navigate to feed to check login status
                 logger.info("Checking if we're logged in...")
                 try:
                     self.driver.get("https://www.linkedin.com/feed/")
-                    time.sleep(5)  # Allow more time to load
+                    time.sleep(8) # Increased wait after navigating to feed
+                except TimeoutException:
+                    logger.warning("Timeout loading feed page, trying homepage.")
+                    try:
+                        self.driver.get("https://www.linkedin.com/")
+                        time.sleep(8) # Increased wait
+                    except Exception as e:
+                         logger.error(f"Error navigating to LinkedIn after cookie load: {str(e)}")
+                         cookies_loaded = False # Force credential login
                 except Exception as e:
                     logger.warning(f"Error navigating to feed: {str(e)}")
                     # Try an alternative URL
-                    self.driver.get("https://www.linkedin.com/")
-                    time.sleep(5)
-                    
-                # Check for login success indicators
-                try:
-                    # Check multiple indicators of successful login
-                    login_indicators = [
-                        (By.ID, "global-nav"),
-                        (By.CSS_SELECTOR, "div.feed-identity-module"),
-                        (By.CSS_SELECTOR, "li.global-nav__primary-item")
-                    ]
-                    
-                    for indicator in login_indicators:
-                        try:
-                            WebDriverWait(self.driver, 3).until(EC.presence_of_element_located(indicator))
-                            logger.info(f"Login successful! Found indicator: {indicator[1]}")
-                            return True
-                        except:
-                            pass
-                            
-                    # If none of the indicators are found
-                    logger.info("Could not confirm login with cookies, proceeding to credentials login")
-                except:
-                    logger.warning("Saved cookies might be invalid. Proceeding to full login.")
+                    try:
+                        self.driver.get("https://www.linkedin.com/")
+                        time.sleep(8) # Increased wait
+                    except Exception as nav_err:
+                         logger.error(f"Error navigating to LinkedIn after cookie load: {str(nav_err)}")
+                         cookies_loaded = False # Force credential login
+
+                # Check for login success indicators only if navigation seemed okay
+                if cookies_loaded:
+                    try:
+                        # Check multiple indicators of successful login
+                        login_indicators = [
+                            (By.ID, "global-nav"),
+                            (By.CSS_SELECTOR, "div.feed-identity-module"),
+                            (By.CSS_SELECTOR, "li.global-nav__primary-item")
+                        ]
+                        
+                        for indicator in login_indicators:
+                            try:
+                                # Increase wait time for indicators
+                                WebDriverWait(self.driver, 10).until(EC.presence_of_element_located(indicator))
+                                logger.info(f"Login successful using cookies! Found indicator: {indicator[1]}")
+                                return True
+                            except TimeoutException: # Catch specific timeout
+                                logger.debug(f"Indicator {indicator[1]} not found within 10 seconds.")
+                                pass
+                            except Exception as e:
+                                logger.debug(f"Error checking indicator {indicator[1]}: {e}")
+                                pass
+                                
+                        # If none of the indicators are found
+                        logger.info("Could not confirm login with cookies, proceeding to credentials login")
+                    except Exception as e:
+                        logger.warning(f"Error checking login status with cookies: {e}. Proceeding to full login.")
             
             # Full login with credentials
             logger.info("Attempting full login with credentials...")
@@ -309,8 +343,15 @@ class LinkedInScraper:
                 try:
                     logger.info(f"Login attempt {attempt+1}/{max_attempts}")
                     self.driver.get("https://www.linkedin.com/login")
-                    time.sleep(5)  # Longer wait for page to load
+                    time.sleep(8) # Longer wait for login page itself
                     break
+                except TimeoutException:
+                     logger.warning(f"Timeout navigating to login page on attempt {attempt+1}")
+                     if attempt < max_attempts - 1:
+                         time.sleep(5)
+                     else:
+                         logger.error("Failed to navigate to login page after multiple timeouts")
+                         return False
                 except Exception as e:
                     logger.warning(f"Error navigating to login page: {str(e)}")
                     if attempt < max_attempts - 1:
@@ -322,45 +363,60 @@ class LinkedInScraper:
             
             # Wait for login form and enter credentials
             try:
-                username_field = WebDriverWait(self.driver, 15).until(
+                # Increase wait time for username field
+                username_field = WebDriverWait(self.driver, 25).until(
                     EC.presence_of_element_located((By.ID, "username"))
                 )
                 username_field.clear()
                 time.sleep(1)
                 username_field.send_keys(self.config.linkedin_email)
                 
-                password_field = self.driver.find_element(By.ID, "password")
+                password_field = WebDriverWait(self.driver, 10).until( # Add wait for password field too
+                    EC.presence_of_element_located((By.ID, "password"))
+                )
                 password_field.clear()
                 time.sleep(1)
                 password_field.send_keys(self.config.linkedin_password)
                 time.sleep(1)
                 
-                self.driver.find_element(By.CSS_SELECTOR, "button[type='submit']").click()
+                # Add wait for submit button
+                submit_button = WebDriverWait(self.driver, 10).until(
+                    EC.element_to_be_clickable((By.CSS_SELECTOR, "button[type='submit']"))
+                )
+                submit_button.click()
                 
                 # Add a random delay to simulate human behavior
-                time.sleep(random.uniform(5, 8))
+                time.sleep(random.uniform(8, 12)) # Increased delay after submit
                 
                 # Check for login success
-                for _ in range(5):  # Try more times with longer delays
+                for i in range(5): # Try more times with longer delays
                     try:
-                        WebDriverWait(self.driver, 8).until(
+                        # Increase wait time for global nav
+                        WebDriverWait(self.driver, 15).until(
                             EC.presence_of_element_located((By.ID, "global-nav"))
                         )
                         logger.info("Successfully logged into LinkedIn with credentials")
                         self._save_cookies()  # Save cookies after successful login
                         return True
-                    except:
-                        time.sleep(3)  # Longer wait between retries
-                        
-                logger.warning("LinkedIn login might have failed. Limited access.")
+                    except TimeoutException:
+                        logger.warning(f"Login check attempt {i+1}: global-nav not found yet.")
+                        time.sleep(5) # Longer wait between retries
+                    except Exception as e:
+                         logger.error(f"Unexpected error during login check: {e}")
+                         time.sleep(5)
+
+                logger.warning("LinkedIn login might have failed after credential attempt. Limited access.")
                 return False
                     
+            except TimeoutException:
+                 logger.error("Timeout waiting for login form elements (username, password, or submit).")
+                 return False
             except Exception as login_error:
                 logger.error(f"Error during login process: {str(login_error)}")
                 return False
 
         except Exception as e:
-            logger.error(f"Error during LinkedIn login process: {str(e)}")
+            logger.error(f"Outer error during LinkedIn login process: {str(e)}")
             return False
     
     def extract_profile_data(self, profile_url):
