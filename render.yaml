@@ -11,7 +11,7 @@ services:
         value: 1
       # Render automatically sets the PORT env var, Streamlit uses it.
     healthCheckPath: /healthz # Streamlit's default health check endpoint
-    disk: 
-      name: data
-      mountPath: /app 
-      sizeGB: 1
+    # disk: 
+    #   name: data
+    #   mountPath: /app 
+    #   sizeGB: 1
