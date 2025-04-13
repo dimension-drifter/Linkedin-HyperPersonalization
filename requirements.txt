@@ -72,3 +72,4 @@ watchdog==6.0.0
 webdriver-manager==4.0.2
 websocket-client==1.8.0
 wsproto==1.2.0
+flask

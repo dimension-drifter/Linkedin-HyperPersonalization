@@ -1318,3 +1318,15 @@ class LinkedInOutreachPipeline:
 
 # Initialize database at module level for app access
 init_database()
+
+def get_pipeline_and_scraper():
+    """
+    Initialize and return the LinkedIn outreach pipeline, database operations, and scraper.
+    
+    Returns:
+        Tuple containing (LinkedInOutreachPipeline, DatabaseOps, LinkedInScraper) instances
+    """
+    pipeline = LinkedInOutreachPipeline()
+    db_ops = DatabaseOps()
+    linkedin_scraper = LinkedInScraper(pipeline.config)
+    return pipeline, db_ops, linkedin_scraper
