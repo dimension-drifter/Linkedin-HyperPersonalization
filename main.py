@@ -689,6 +689,49 @@ class LinkedInScraper:
         if hasattr(self, 'driver'):
             self.driver.quit()
 
+    def verify_session(self):
+        """Verify if the current LinkedIn session is still valid"""
+        try:
+            logger.info("LinkedIn session verification in progress...")
+            
+            # Try to navigate to the feed page as a session verification
+            try:
+                self.driver.get("https://www.linkedin.com/feed/")
+                time.sleep(5)  # Allow page to load
+            except Exception as e:
+                logger.warning(f"Error navigating to feed during session verification: {str(e)}")
+                return False
+                
+            # Check for indicators of being logged in
+            login_indicators = [
+                (By.ID, "global-nav"),
+                (By.CSS_SELECTOR, "div.feed-identity-module"),
+                (By.CSS_SELECTOR, "li.global-nav__primary-item")
+            ]
+            
+            for indicator in login_indicators:
+                try:
+                    element = WebDriverWait(self.driver, 5).until(
+                        EC.presence_of_element_located(indicator)
+                    )
+                    if element.is_displayed():
+                        logger.info("LinkedIn session is valid")
+                        return True
+                except:
+                    continue
+            
+            # Check if we're redirected to a login page
+            if "login" in self.driver.current_url.lower():
+                logger.info("LinkedIn session has expired (redirected to login)")
+                return False
+                
+            logger.warning("Could not confirm LinkedIn session status")
+            return False
+            
+        except Exception as e:
+            logger.error(f"Error checking session validity: {str(e)}")
+            return False
+
 # Company research class using free APIs
 class CompanyResearcher:
     def __init__(self, config):
@@ -1133,6 +1176,63 @@ class DatabaseOps:
             
         except Exception as e:
             logger.error(f"Error deleting profile: {str(e)}")
+            conn.rollback()
+            return False
+        finally:
+            conn.close()
+
+    def get_messages_by_linkedin_url(self, linkedin_url):
+        """Get messages for a specific LinkedIn URL"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        try:
+            # First get the founder ID associated with this URL
+            cursor.execute('''
+            SELECT id FROM founders WHERE linkedin_url = ?
+            ''', (linkedin_url,))
+            
+            founder_result = cursor.fetchone()
+            if not founder_result:
+                logger.warning(f"No founder found for LinkedIn URL: {linkedin_url}")
+                return []
+                
+            founder_id = founder_result[0]
+            
+            # Then get all messages for this founder
+            cursor.execute('''
+            SELECT m.id, m.message_text, m.generated_date, m.was_sent 
+            FROM messages m
+            WHERE m.founder_id = ?
+            ORDER BY m.generated_date DESC
+            ''', (founder_id,))
+            
+            return cursor.fetchall()
+            
+        except Exception as e:
+            logger.error(f"Error getting messages by LinkedIn URL: {str(e)}")
+            return []
+        finally:
+            conn.close()
+            
+    def mark_message_as_sent(self, message_id):
+        """Mark a message as sent in the database"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        try:
+            # Update the message's was_sent status
+            cursor.execute('''
+            UPDATE messages 
+            SET was_sent = 1
+            WHERE id = ?
+            ''', (message_id,))
+            
+            conn.commit()
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error marking message as sent: {str(e)}")
             conn.rollback()
             return False
         finally:

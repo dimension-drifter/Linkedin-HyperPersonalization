@@ -4,31 +4,83 @@ import sys
 import json
 import pandas as pd
 from datetime import datetime
+import traceback
 import main  # Import your existing main.py module
 
 app = Flask(__name__, static_folder='.')
 
-# Initialize global objects
+# Global objects for LinkedIn session persistence
 pipeline = None
 db_ops = None
 linkedin_scraper = None
+session_is_valid = False
+last_session_check = None
 
 def initialize_services():
-    """Initialize LinkedIn scraper and pipeline"""
-    global pipeline, db_ops, linkedin_scraper
+    """Initialize LinkedIn scraper and pipeline once and maintain session"""
+    global pipeline, db_ops, linkedin_scraper, session_is_valid, last_session_check
     
-    if pipeline is None or db_ops is None or linkedin_scraper is None:
-        try:
-            pipeline, db_ops, linkedin_scraper = main.get_pipeline_and_scraper()
+    try:
+        if pipeline is None or db_ops is None or linkedin_scraper is None:
+            print("Initializing LinkedIn services...")
+            pipeline = main.LinkedInOutreachPipeline()
+            db_ops = main.DatabaseOps()
+            linkedin_scraper = main.LinkedInScraper(pipeline.config)
+            
             # Attempt to log in to LinkedIn
+            print("Attempting to log in to LinkedIn...")
             linkedin_login_success = linkedin_scraper.login_to_linkedin()
-            if not linkedin_login_success:
+            if linkedin_login_success:
+                session_is_valid = True
+                last_session_check = datetime.now()
+                print("LinkedIn login successful!")
+            else:
                 print("Failed to login to LinkedIn. Check credentials in .env file.")
+                session_is_valid = False
                 return {"status": "error", "message": "LinkedIn login failed"}
+            
             return {"status": "success"}
-        except Exception as e:
-            print(f"Error initializing services: {str(e)}")
-            return {"status": "error", "message": str(e)}
+        else:
+            # If services already initialized, verify session is still valid
+            # and session was checked in the last 30 minutes
+            current_time = datetime.now()
+            if (not session_is_valid or 
+                last_session_check is None or 
+                (current_time - last_session_check).total_seconds() > 1800):  # 30 minutes
+                
+                print("Verifying LinkedIn session...")
+                session_is_valid = linkedin_scraper.verify_session()
+                last_session_check = current_time
+                
+                if not session_is_valid:
+                    print("LinkedIn session expired. Attempting to login again...")
+                    linkedin_login_success = linkedin_scraper.login_to_linkedin()
+                    if linkedin_login_success:
+                        session_is_valid = True
+                        print("LinkedIn login successful!")
+                    else:
+                        print("Failed to login to LinkedIn. Check credentials in .env file.")
+                        return {"status": "error", "message": "LinkedIn login failed"}
+                else:
+                    print("LinkedIn session is still valid.")
+            
+            return {"status": "success"}
+            
+    except Exception as e:
+        error_msg = f"Error initializing services: {str(e)}"
+        print(error_msg)
+        traceback.print_exc()  # Print detailed stack trace for debugging
+        session_is_valid = False
+        return {"status": "error", "message": error_msg}
+
+# Initialize the services when the application starts
+print("Starting LinkedIn Tool API Server...")
+init_result = initialize_services()
+if init_result and init_result.get("status") == "error":
+    print(f"WARNING: Services failed to initialize: {init_result.get('message')}")
+    print("The application will try to initialize again when endpoints are called.")
+else:
+    print("LinkedIn Tool services initialized successfully!")
 
 # Serve static files
 @app.route('/')
@@ -48,7 +100,8 @@ def serve_assets(path):
 def process_profile():
     """Process a single LinkedIn profile URL"""
     try:
-        # Initialize if not already
+        # Initialize if not already or verify session
+        global pipeline, db_ops, linkedin_scraper, session_is_valid
         init_result = initialize_services()
         if init_result.get("status") == "error":
             return jsonify({"error": init_result.get("message")}), 500
@@ -83,6 +136,7 @@ def process_profile():
         
     except Exception as e:
         print(f"Error processing profile: {str(e)}")
+        traceback.print_exc()  # Print detailed stack trace for debugging
         return jsonify({"error": str(e)}), 500
 
 @app.route('/api/process_batch', methods=['POST'])
