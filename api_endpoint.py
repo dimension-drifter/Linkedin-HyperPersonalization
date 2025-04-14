@@ -5,7 +5,9 @@ import json
 import pandas as pd
 from datetime import datetime
 import traceback
-import main  # Import your existing main.py module
+import main  
+from linkedin_auth import LinkedInAuth  
+
 
 app = Flask(__name__, static_folder='.')
 
