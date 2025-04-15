@@ -383,14 +383,7 @@
                     <div class="text-center relative z-10">
                         <h1 class="text-3xl sm:text-4xl font-bold text-textPrimary mb-4 font-display scramble-text">LinkedIn Hyper-Personalization</h1>
                         <p class="text-lg text-textSecondary max-w-3xl mx-auto animate-fadeInUp">Generate hyper-personalized messages for LinkedIn connections</p>
-                        <div class="mt-6 flex justify-center space-x-4">
-                            <a href="#content-single" class="inline-flex items-center px-5 py-2.5 border border-transparent text-base font-medium rounded-xl shadow-sm text-white bg-primary hover:bg-primaryDark transition-all btn-primary">
-                                Get Started <i class="fas fa-chevron-right ml-2 text-sm"></i>
-                            </a>
-                            <a href="#" class="inline-flex items-center px-5 py-2.5 text-base font-medium rounded-xl text-primary bg-white border border-primary/20 hover:border-primary/50 hover:bg-gray-50 transition-all">
-                                <i class="fas fa-play-circle mr-2 text-sm"></i> Watch Demo
-                            </a>
-                        </div>
+                    
                     </div>
                     <div class="absolute inset-0 bg-gradient-to-t inset-x-0 z-0 bottom-0 bg-white h-full [mask-image:radial-gradient(900px_at_center,transparent_30%,white)]"></div>
                 </div>
@@ -529,21 +522,24 @@
                             
                             <!-- History Table -->
                             <div class="shadow overflow-hidden border-b border-gray-200 sm:rounded-xl">
-                                <table class="min-w-full divide-y divide-gray-200">
-                                    <thead class="bg-gray-50">
-                                        <tr>
-                                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-textSecondary uppercase tracking-wider">Name</th>
-                                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-textSecondary uppercase tracking-wider">Company</th>
-                                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-textSecondary uppercase tracking-wider">Profile URL</th>
-                                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-textSecondary uppercase tracking-wider">Generated On</th>
-                                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-textSecondary uppercase tracking-wider">Sent</th>
-                                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-textSecondary uppercase tracking-wider">Actions</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="history-table-body" class="bg-white divide-y divide-gray-200">
-                                        <!-- History rows will be dynamically inserted here -->
-                                    </tbody>
-                                </table>
+                                <div class="w-full overflow-x-auto">
+                                    <table class="min-w-full divide-y divide-gray-200">
+                                        <thead class="bg-gray-50">
+                                            <tr>
+                                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-textSecondary uppercase tracking-wider">Name</th>
+                                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-textSecondary uppercase tracking-wider">Company</th>
+                                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-textSecondary uppercase tracking-wider">Profile URL</th>
+                                                <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-textSecondary uppercase tracking-wider w-32">Generated On</th>
+                                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-textSecondary uppercase tracking-wider">Message</th>
+                                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-textSecondary uppercase tracking-wider">Sent</th>
+                                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-textSecondary uppercase tracking-wider">Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="history-table-body" class="bg-white divide-y divide-gray-200">
+                                            <!-- History rows will be dynamically inserted here -->
+                                        </tbody>
+                                    </table>
+                                </div>
                             </div>
                         </div>
                     </div>

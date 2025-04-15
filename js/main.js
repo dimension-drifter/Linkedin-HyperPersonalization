@@ -11,6 +11,34 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Initialize hover and animation effects
     initAnimations();
+
+    // Export CSV button handler
+    const exportCsvBtn = document.getElementById('export-csv');
+    if (exportCsvBtn) {
+        exportCsvBtn.addEventListener('click', function() {
+            // Create a hidden link and trigger download
+            fetch('/api/export_csv')
+                .then(response => {
+                    if (!response.ok) throw new Error('Failed to export CSV');
+                    return response.blob();
+                })
+                .then(blob => {
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.style.display = 'none';
+                    a.href = url;
+                    a.download = 'linkedin_messages.csv';
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    document.body.removeChild(a);
+                })
+                .catch(err => {
+                    alert('Failed to export CSV. Please try again.');
+                    console.error(err);
+                });
+        });
+    }
 });
 
 // Handle tab switching
@@ -272,9 +300,19 @@ function createBatchResultCard(data) {
     });
     
     if (data.message_id) {
-        card.querySelector('.mark-sent').addEventListener('click', function() {
+        const markSentBtn = card.querySelector('.mark-sent');
+        markSentBtn.disabled = false;
+        markSentBtn.classList.remove('opacity-50');
+        markSentBtn.addEventListener('click', function() {
             const messageId = this.getAttribute('data-id');
-            markMessageAsSent(messageId);
+            markMessageAsSent(messageId, () => {
+                // Disable the button and show as sent
+                markSentBtn.disabled = true;
+                markSentBtn.classList.add('opacity-50');
+                markSentBtn.innerHTML = '<i class="fas fa-check mr-1"></i> Sent';
+                // Optionally show a toast or alert
+                // alert('Marked as sent!');
+            });
         });
     } else {
         card.querySelector('.mark-sent').disabled = true;
@@ -420,6 +458,43 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 
+document.addEventListener('DOMContentLoaded', function() {
+    const messageModal = document.getElementById('message-modal');
+    const closeModal = document.getElementById('close-modal');
+
+    if (messageModal && closeModal) {
+        closeModal.addEventListener('click', () => {
+            messageModal.classList.add('hidden');
+        });
+
+        // Close modal when clicking outside the content
+        messageModal.addEventListener('click', (event) => {
+            if (event.target === messageModal) {
+                messageModal.classList.add('hidden');
+            }
+        });
+
+        // Handle modal open for batch view (use actual data)
+        document.addEventListener('click', (event) => {
+            let btn = event.target;
+            if (!btn.classList.contains('view-message') && btn.parentElement?.classList.contains('view-message')) {
+                btn = btn.parentElement;
+            }
+            if (btn.classList.contains('view-message')) {
+                const name = btn.getAttribute('data-name') || '-';
+                const company = btn.getAttribute('data-company') || '-';
+                const message = decodeURIComponent(btn.getAttribute('data-message') || '');
+
+                document.getElementById('modal-person').textContent = name;
+                document.getElementById('modal-company').textContent = company;
+                document.getElementById('modal-message').textContent = message;
+
+                messageModal.classList.remove('hidden');
+            }
+        });
+    }
+});
+
 // Apply hover effects to dynamically added elements
 function applyHoverEffects() {
     document.querySelectorAll('.hover-scale').forEach(element => {
@@ -492,7 +567,7 @@ function loadMessageHistory() {
                     row.className = 'hover:bg-gray-50';
                     
                     const isSent = message.sent ? 'checked' : '';
-                    const formattedDate = new Date(message.generated_date).toLocaleString();
+                    const formattedDate = new Date(message.generated_date).toLocaleDateString();
                     
                     row.innerHTML = `
                         <td class="px-6 py-4 whitespace-nowrap">${message.full_name}</td>
@@ -503,6 +578,9 @@ function loadMessageHistory() {
                             </a>
                         </td>
                         <td class="px-6 py-4 whitespace-nowrap">${formattedDate}</td>
+                        <td class="px-6 py-4 whitespace-nowrap max-w-xs overflow-x-auto" style="max-width: 300px;">
+                            <div class="truncate" title="${message.message_text}">${message.message_text || ''}</div>
+                        </td>
                         <td class="px-6 py-4 whitespace-nowrap">
                             <input type="checkbox" ${isSent} class="mark-sent-checkbox" data-id="${message.id}">
                         </td>
@@ -601,7 +679,7 @@ function copyToClipboard(text) {
 }
 
 // Mark message as sent
-function markMessageAsSent(messageId) {
+function markMessageAsSent(messageId, callback) {
     if (!messageId) return;
     
     fetch('/api/mark_sent', {
@@ -620,6 +698,7 @@ function markMessageAsSent(messageId) {
     .then(data => {
         if (data.success) {
             console.log('Message marked as sent successfully');
+            if (typeof callback === 'function') callback();
         } else {
             console.error('Failed to mark message as sent');
         }

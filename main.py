@@ -116,7 +116,7 @@ class LinkedInScraper:
     
     def login_to_linkedin(self):
         """Login to LinkedIn using the auth module"""
-        return self.linkedin_auth.login()
+        return self.linkedin_auth.ensure_logged_in()
     
     def extract_profile_data(self, profile_url):
         """Extract data from a LinkedIn profile with enhanced detail extraction"""

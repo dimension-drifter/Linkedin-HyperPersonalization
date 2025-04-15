@@ -202,31 +202,25 @@ def process_batch():
 def message_history():
     """Get message history from the database"""
     try:
-        # Initialize if not already
         init_result = initialize_services()
         if init_result.get("status") == "error":
             return jsonify({"error": init_result.get("message")}), 500
-        
-        # Fetch messages from the database
+
         raw_messages = db_ops.get_all_messages()
-        
         messages = []
         for msg in raw_messages:
-            # Convert database rows to dictionaries
-            # Adjust these indices based on your actual database schema
+            # msg is a dict: keys are 'full_name', 'linkedin_url', 'company_name', 'message_text', 'generated_date', 'was_sent'
             message = {
-                'id': msg[0],
-                'full_name': msg[1],
-                'linkedin_url': msg[2],
-                'company_name': msg[3],
-                'message_text': msg[4],
-                'generated_date': msg[5],
-                'sent': bool(msg[6]) if len(msg) > 6 else False
+                'full_name': msg.get('full_name', ''),
+                'linkedin_url': msg.get('linkedin_url', ''),
+                'company_name': msg.get('company_name', ''),
+                'message_text': msg.get('message_text', ''),
+                'generated_date': msg.get('generated_date', ''),
+                'sent': bool(msg.get('was_sent', 0)),
+                # Optionally add an 'id' if you want (for mark_sent)
             }
             messages.append(message)
-        
         return jsonify(messages)
-        
     except Exception as e:
         print(f"Error fetching message history: {str(e)}")
         return jsonify({"error": str(e)}), 500
@@ -262,44 +256,31 @@ def mark_sent():
 def export_csv():
     """Export message history as CSV"""
     try:
-        # Initialize if not already
         init_result = initialize_services()
         if init_result.get("status") == "error":
             return jsonify({"error": init_result.get("message")}), 500
-        
-        # Fetch messages from the database
+
         raw_messages = db_ops.get_all_messages()
-        
         messages = []
         for msg in raw_messages:
-            # Convert database rows to dictionaries
-            # Adjust these indices based on your actual database schema
             message = {
-                'id': msg[0],
-                'full_name': msg[1],
-                'linkedin_url': msg[2],
-                'company_name': msg[3],
-                'message_text': msg[4],
-                'generated_date': msg[5],
-                'sent': bool(msg[6]) if len(msg) > 6 else False
+                'full_name': msg.get('full_name', ''),
+                'company_name': msg.get('company_name', ''),
+                'linkedin_url': msg.get('linkedin_url', ''),
+                'message_text': msg.get('message_text', ''),
+                'generated_date': msg.get('generated_date', ''),
+                'sent': bool(msg.get('was_sent', 0)),
             }
             messages.append(message)
-        
-        # Create a DataFrame
         df = pd.DataFrame(messages)
-        
-        # Generate a temporary CSV file
         csv_path = 'linkedin_messages.csv'
         df.to_csv(csv_path, index=False)
-        
-        # Send the file
         return send_file(
             csv_path,
             mimetype='text/csv',
             as_attachment=True,
             download_name='linkedin_messages.csv'
         )
-        
     except Exception as e:
         print(f"Error exporting CSV: {str(e)}")
         return jsonify({"error": str(e)}), 500
@@ -346,4 +327,4 @@ if __name__ == '__main__':
         os.makedirs('assets')
     
     # Start the Flask app
-    app.run(debug=True, port=8000)
+    app.run(debug=True, use_reloader=False, port=8000)
