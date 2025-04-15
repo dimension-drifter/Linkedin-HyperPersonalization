@@ -369,7 +369,7 @@
 <body class="min-h-screen flex flex-col">
     <div class="flex flex-col min-h-screen">
         <!-- Navbar -->
-        <header class="sticky top-0 z-50 w-full linkd-navbar">
+        <header class="sticky top-0 z-50 w-full bg-transparent">
             <div class="flex h-16 items-center justify-between px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
                 <div class="flex items-center gap-2">
                     <a href="/" class="inline-flex items-center gap-2 font-medium text-lg hover:text-primary scramble-text">
@@ -408,7 +408,7 @@
             <div class="container mx-auto px-4 py-10 max-w-6xl">
                 <!-- Hero Section -->
                 <div class="text-center mb-12 fade-in">
-                    <h1 class="text-4xl sm:text-5xl font-bold mb-4 tracking-tight leading-tight text-gradient scramble-text">LinkedIn<span class="text-black">IQ</span></h1>
+                    <h1 class="text-4xl sm:text-5xl font-bold mb-4 tracking-tight leading-tight text-gradient scramble-text">Linked<span class="text-black">IQ</span></h1>
                     <p class="text-lg text-gray-600 max-w-2xl mx-auto">Generate hyper-personalized messages for LinkedIn connections</p>
                 </div>
 
@@ -568,13 +568,28 @@
         </main>
 
         <!-- Footer -->
-        <footer class="py-6 border-t border-gray-200 bg-white">
-            <div class="container mx-auto px-4 max-w-6xl">
-                <p class="text-sm text-center text-gray-500">
-                    LinkedIn Hyper-Personalization Tool
+        <footer
+              class="w-full py-4 mt-16 border-t"
+              style="border-color: #4d4f5320"
+            >
+              <div class="container mx-auto px-4">
+                <p
+                  class="text-sm font-medium text-center"
+                  style="color: #8c1515"
+                >
+                LinkedIQ | Made with ❤️ by<!-- -->
+                  <a
+                    href="https://github.com/dimension-drifter"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="font-bold hover:underline"
+                    style="color: #4d4f53; text-decoration: none"
+                    >dimension-drifter</a
+                  >
                 </p>
-            </div>
-        </footer>
+              </div>
+            </footer>
+    </div>
     </div>
 
     <!-- Modal for Message Details -->
@@ -638,6 +653,8 @@
 
     <!-- Script -->
     <script src="/js/main.js"></script>
+    <script src="/js/particles.js"></script>
+
     
     <!-- Text scramble effect script -->
     <script>
