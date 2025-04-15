@@ -11,110 +11,73 @@
     <!-- Font Awesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@300;400;500;600;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
         
         body {
             font-family: 'Inter', sans-serif;
+            background-color: #FAFAFA;
+            color: #111827;
         }
         
         h1, h2, h3, h4, h5, h6 {
-            font-family: 'Outfit', sans-serif;
+            font-family: 'Plus Jakarta Sans', sans-serif;
         }
         
-        .gradient-bg {
-            background: linear-gradient(180deg, rgba(140, 21, 21, 0.08) 0%, rgba(140, 21, 21, 0.02) 100%);
-            position: relative;
-            overflow: hidden;
+        /* Linkd-style gradient background */
+        .linkd-gradient {
+            background: linear-gradient(to right, rgba(236, 72, 153, 0.03), rgba(67, 56, 202, 0.03), rgba(59, 130, 246, 0.03));
         }
         
-        .gradient-bg::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: radial-gradient(circle at 50% 50%, rgba(140, 21, 21, 0.1) 0%, transparent 70%);
-            opacity: 0;
-            transition: opacity 0.5s ease-in-out;
-        }
-        
-        .gradient-bg:hover::before {
-            opacity: 1;
-        }
-        
+        /* Animated gradient background */
         .animate-gradient {
             background-size: 200% 200%;
-            animation: gradient 15s ease infinite;
+            animation: gradientAnimation 15s ease infinite;
         }
         
-        @keyframes gradient {
-            0% {
-                background-position: 0% 50%;
-            }
-            50% {
-                background-position: 100% 50%;
-            }
-            100% {
-                background-position: 0% 50%;
-            }
+        @keyframes gradientAnimation {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
         }
         
-        /* Card and container styles */
-        .card {
-            border-radius: 0.75rem;
-            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.1);
-            transition: all 0.3s cubic-bezier(.25,.8,.25,1);
-            transform: translateY(0);
+        /* Text scramble base styles */
+        .scramble-text {
+            display: inline-block;
             position: relative;
         }
         
-        .card:hover {
-            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.08), 0 6px 6px rgba(0, 0, 0, 0.12);
-            transform: translateY(-4px);
-        }
-        
-        .card::after {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
+        /* Hoverable cards with subtle animations */
+        .linkd-card {
             border-radius: 0.75rem;
-            box-shadow: 0 0 0 0 rgba(140, 21, 21, 0.3);
-            opacity: 0;
-            transition: opacity 0.3s ease-in-out, box-shadow 0.3s ease-in-out;
-            pointer-events: none;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            background: white;
+            border: 1px solid rgba(0, 0, 0, 0.05);
+            transform: translateY(0);
         }
         
-        .card:hover::after {
-            opacity: 1;
-            box-shadow: 0 0 0 4px rgba(140, 21, 21, 0.1);
-        }
-        
-        /* Modern form elements */
-        input, textarea, select {
-            transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out, transform 0.15s ease-in-out;
-        }
-        
-        input:focus, textarea:focus, select:focus {
-            border-color: #8C1515;
-            box-shadow: 0 0 0 2px rgba(140, 21, 21, 0.2);
-            transform: scale(1.01);
+        .linkd-card:hover {
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.01);
+            transform: translateY(-2px);
         }
         
         /* Button styles */
-        .btn-primary {
-            background-color: #8C1515;
+        .linkd-btn-primary {
+            background: linear-gradient(to right, #4f46e5, #6366f1);
             color: white;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            border-radius: 0.5rem;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            border: none;
             position: relative;
             overflow: hidden;
-            z-index: 1;
         }
         
-        .btn-primary::before {
+        .linkd-btn-primary:hover {
+            box-shadow: 0 10px 15px -3px rgba(79, 70, 229, 0.2), 0 4px 6px -4px rgba(79, 70, 229, 0.2);
+        }
+        
+        .linkd-btn-primary::before {
             content: '';
             position: absolute;
             top: 0;
@@ -122,169 +85,254 @@
             width: 100%;
             height: 100%;
             background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
-            transition: left 0.5s ease-in-out;
-            z-index: -1;
+            transition: left 0.7s ease;
         }
         
-        .btn-primary:hover {
-            background-color: #6e1010;
-            transform: translateY(-2px);
-            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-        }
-        
-        .btn-primary:hover::before {
+        .linkd-btn-primary:hover::before {
             left: 100%;
         }
         
-        .btn-outline {
-            border: 1px solid #8C1515;
-            color: #8C1515;
-            background-color: transparent;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            position: relative;
-            overflow: hidden;
-            z-index: 1;
+        .linkd-btn-secondary {
+            background-color: white;
+            color: #4f46e5;
+            border: 1px solid rgba(79, 70, 229, 0.2);
+            border-radius: 0.5rem;
+            font-weight: 500;
+            transition: all 0.2s ease;
         }
         
-        .btn-outline::after {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background-color: rgba(140, 21, 21, 0.05);
-            transform-origin: bottom;
-            transform: scaleY(0);
-            transition: transform 0.3s ease-in-out;
-            z-index: -1;
+        .linkd-btn-secondary:hover {
+            background-color: rgba(79, 70, 229, 0.05);
+            border-color: rgba(79, 70, 229, 0.3);
         }
         
-        .btn-outline:hover {
-            background-color: transparent;
-            transform: translateY(-2px);
-            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.05);
+        /* Input styling */
+        .linkd-input {
+            border: 1px solid rgba(0, 0, 0, 0.08);
+            border-radius: 0.5rem;
+            padding: 0.75rem 1rem;
+            transition: all 0.2s ease;
+            background-color: white;
         }
         
-        .btn-outline:hover::after {
-            transform: scaleY(1);
+        .linkd-input:focus {
+            border-color: #4f46e5;
+            box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.2);
+            outline: none;
         }
         
-        /* Scramble text effect */
-        .scramble-text {
-            display: inline-block;
-            position: relative;
-            transition: all 0.3s ease;
+        /* Navbar styling */
+        .linkd-navbar {
+            backdrop-filter: blur(8px);
+            background: rgba(255, 255, 255, 0.8);
+            border-bottom: 1px solid rgba(0, 0, 0, 0.05);
         }
         
-        /* Hover effects */
-        .hover-scale {
-            transition: transform 0.3s ease;
-        }
-        
-        .hover-scale:hover {
-            transform: scale(1.05);
-        }
-        
-        .hover-glow {
-            transition: box-shadow 0.3s ease;
-        }
-        
-        .hover-glow:hover {
-            box-shadow: 0 0 15px rgba(140, 21, 21, 0.3);
-        }
-        
-        /* Background animations */
-        .bg-animate {
-            position: relative;
-            overflow: hidden;
-        }
-        
-        .bg-animate::before {
-            content: '';
-            position: absolute;
-            top: -50%;
-            left: -50%;
-            width: 200%;
-            height: 200%;
-            background: radial-gradient(circle at center, rgba(140, 21, 21, 0.05) 0%, transparent 50%);
-            opacity: 0;
-            z-index: -1;
-            transform: scale(0.5);
-            transition: transform 0.5s ease-out, opacity 0.5s ease-out;
-        }
-        
-        .bg-animate:hover::before {
-            opacity: 1;
-            transform: scale(1);
-        }
-        
-        /* Custom animations */
-        @keyframes fadeInUp {
-            from {
-                opacity: 0;
-                transform: translateY(20px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-        
-        .animate-fadeInUp {
-            animation: fadeInUp 0.5s ease-out forwards;
-        }
-        
-        @keyframes shimmer {
-            0% {
-                background-position: -100% 0;
-            }
-            100% {
-                background-position: 200% 0;
-            }
-        }
-        
+        /* Shimmer effect */
         .shimmer {
             background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.6), transparent);
             background-size: 200% 100%;
-            animation: shimmer 2s infinite;
+            animation: shimmerAnimation 2s infinite;
         }
         
-        /* Radial mask for background */
-        .radial-mask {
-            mask-image: radial-gradient(circle at center, black 30%, transparent 80%);
-            -webkit-mask-image: radial-gradient(circle at center, black 30%, transparent 80%);
+        @keyframes shimmerAnimation {
+            0% { background-position: -100% 0; }
+            100% { background-position: 200% 0; }
+        }
+        
+        /* Animated text gradient */
+        .text-gradient {
+            background: linear-gradient(90deg, #4f46e5, #ec4899, #3b82f6);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+            background-size: 200% auto;
+            animation: textGradient 8s linear infinite;
+        }
+        
+        @keyframes textGradient {
+            0% { background-position: 0% 50%; }
+            100% { background-position: 200% 50%; }
+        }
+        
+        /* Loading animation */
+        .loading-dot {
+            animation: loadingDot 1.4s infinite ease-in-out both;
+        }
+        
+        .loading-dot:nth-child(1) { animation-delay: -0.32s; }
+        .loading-dot:nth-child(2) { animation-delay: -0.16s; }
+        
+        @keyframes loadingDot {
+            0%, 80%, 100% { transform: scale(0); }
+            40% { transform: scale(1); }
+        }
+        
+        /* Table styles */
+        .linkd-table th {
+            font-weight: 500;
+            color: #6b7280;
+            text-transform: uppercase;
+            font-size: 0.75rem;
+            letter-spacing: 0.05em;
+        }
+        
+        .linkd-table tr {
+            border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+            transition: background-color 0.2s ease;
+        }
+        
+        .linkd-table tr:hover {
+            background-color: rgba(79, 70, 229, 0.02);
+        }
+        
+        /* Checkbox styling */
+        .linkd-checkbox {
+            appearance: none;
+            width: 1.25rem;
+            height: 1.25rem;
+            border: 1px solid rgba(0, 0, 0, 0.2);
+            border-radius: 0.25rem;
+            background-color: white;
+            transition: all 0.2s ease;
+            position: relative;
+            cursor: pointer;
+        }
+        
+        .linkd-checkbox:checked {
+            background-color: #4f46e5;
+            border-color: #4f46e5;
+        }
+        
+        .linkd-checkbox:checked::after {
+            content: '✓';
+            position: absolute;
+            color: white;
+            font-size: 0.75rem;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+        }
+        
+        /* Fade in animation */
+        .fade-in {
+            animation: fadeIn 0.5s ease forwards;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
         }
 
-        /* Header animation */
-        .header-animate {
-            position: relative;
-            background: linear-gradient(90deg, rgba(140, 21, 21, 0.01) 0%, rgba(140, 21, 21, 0.06) 50%, rgba(140, 21, 21, 0.01) 100%);
-            background-size: 200% 100%;
-            animation: headerGradient 15s ease infinite;
+        /* Add these styles to your existing CSS */
+        .scramble-char {
+            display: inline-block;
+            color: #4f46e5;
+            text-shadow: 0 0 3px rgba(79, 70, 229, 0.3);
+            animation: pulse 0.3s ease-in-out infinite alternate;
         }
         
-        @keyframes headerGradient {
-            0% { background-position: 0% 50%; }
-            50% { background-position: 100% 50%; }
-            100% { background-position: 0% 50%; }
+        @keyframes pulse {
+            from { opacity: 0.7; }
+            to { opacity: 1; }
         }
         
-        .header-animate::after {
-            content: '';
-            position: absolute;
-            bottom: 0;
-            left: 0;
-            width: 100%;
-            height: 1px;
-            background: linear-gradient(90deg, transparent, rgba(140, 21, 21, 0.3), transparent);
-            transform: scaleX(0);
-            transform-origin: left;
-            transition: transform 0.6s ease-out;
+        /* Add shake animation for error states */
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            20%, 60% { transform: translateX(-5px); }
+            40%, 80% { transform: translateX(5px); }
         }
         
-        .header-animate:hover::after {
-            transform: scaleX(1);
+        .shake-animation {
+            animation: shake 0.5s ease-in-out;
+        }
+        
+        /* Add pulse animation for success states */
+        @keyframes pulseScale {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+        
+        .pulse-animation {
+            animation: pulseScale 0.5s ease-in-out;
+        }
+        
+        /* Fade out animation */
+        .fade-out {
+            animation: fadeOut 0.5s ease forwards;
+        }
+        
+        @keyframes fadeOut {
+            from { opacity: 1; }
+            to { opacity: 0; }
+        }
+
+        /* Modal animations */
+        .modal-entry-animation {
+            animation: modalEntry 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+        
+        @keyframes modalEntry {
+            from { transform: scale(0.9); opacity: 0; }
+            to { transform: scale(1); opacity: 1; }
+        }
+        
+        @keyframes fadeSlideIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* Markdown styling */
+        .prose-sm h1, .prose-sm h2, .prose-sm h3 {
+            color: #4f46e5;
+            margin-top: 0.75em;
+            margin-bottom: 0.5em;
+            line-height: 1.3;
+        }
+        
+        .prose-sm h1 {
+            font-size: 1.2em;
+        }
+        
+        .prose-sm h2 {
+            font-size: 1.1em;
+        }
+        
+        .prose-sm h3 {
+            font-size: 1em;
+        }
+        
+        .prose-sm strong {
+            color: #4b5563;
+            font-weight: 600;
+        }
+        
+        .prose-sm ul, .prose-sm ol {
+            margin-top: 0.5em;
+            margin-bottom: 0.5em;
+        }
+        
+        .prose-sm li {
+            margin-top: 0.25em;
+            margin-bottom: 0.25em;
+        }
+        
+        .prose-sm p {
+            margin-top: 0.5em;
+            margin-bottom: 0.5em;
+            line-height: 1.5;
+        }
+        
+        /* Add a subtle animation when content loads */
+        .prose-sm {
+            animation: softFadeIn 0.5s ease-out;
+        }
+        
+        @keyframes softFadeIn {
+            from { opacity: 0.5; transform: translateY(5px); }
+            to { opacity: 1; transform: translateY(0); }
         }
     </style>
     <script>
@@ -292,187 +340,159 @@
             theme: {
                 extend: {
                     colors: {
-                        primary: '#8C1515',
-                        secondary: '#4D4F53',
-                        accent: '#8C1515',
-                        background: '#FFFFFF',
-                        primaryDark: '#6e1010',
-                        primaryLight: '#a51c1c',
-                        textPrimary: '#2E2D29',
-                        textSecondary: '#4D4F53'
+                        primary: '#4f46e5',
+                        secondary: '#6b7280',
+                        accent: '#ec4899',
+                        indigo: {
+                            100: '#e0e7ff',
+                            500: '#6366f1',
+                            600: '#4f46e5'
+                        },
+                        pink: {
+                            100: '#fce7f3',
+                            500: '#ec4899'
+                        },
+                        blue: {
+                            100: '#dbeafe',
+                            500: '#3b82f6'
+                        }
                     },
                     fontFamily: {
                         sans: ['Inter', 'sans-serif'],
-                        display: ['Outfit', 'sans-serif']
-                    },
-                    borderRadius: {
-                        'xl': '0.75rem',
-                        '2xl': '1rem'
-                    },
-                    animation: {
-                        'gradient': 'gradient 15s ease infinite',
-                        'shimmer': 'shimmer 2s infinite',
-                        'fadeInUp': 'fadeInUp 0.5s ease-out forwards',
-                        'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
-                    },
-                    keyframes: {
-                        gradient: {
-                            '0%': { backgroundPosition: '0% 50%' },
-                            '50%': { backgroundPosition: '100% 50%' },
-                            '100%': { backgroundPosition: '0% 50%' }
-                        },
-                        shimmer: {
-                            '0%': { backgroundPosition: '-100% 0' },
-                            '100%': { backgroundPosition: '200% 0' }
-                        },
-                        fadeInUp: {
-                            'from': { opacity: '0', transform: 'translateY(20px)' },
-                            'to': { opacity: '1', transform: 'translateY(0)' }
-                        }
+                        display: ['Plus Jakarta Sans', 'sans-serif']
                     }
                 }
             }
         }
     </script>
 </head>
-<body class="antialiased min-h-screen flex flex-col overflow-auto bg-gray-50">
+<body class="min-h-screen flex flex-col">
     <div class="flex flex-col min-h-screen">
-        <!-- Header -->
-        <header class="sticky top-0 z-50 w-full bg-white shadow-sm backdrop-blur-sm bg-white/80 header-animate">
-            <div class="flex h-16 items-center justify-between px-4 sm:px-6 lg:px-8">
+        <!-- Navbar -->
+        <header class="sticky top-0 z-50 w-full linkd-navbar">
+            <div class="flex h-16 items-center justify-between px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
                 <div class="flex items-center gap-2">
-                    <a href="/" class="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md font-medium transition-colors h-9 py-2 px-2 text-base hover:text-primary scramble-text">
-                        <img src="https://cdn-icons-png.flaticon.com/512/174/174857.png" alt="LinkedIn Logo" class="h-8 w-auto hover-scale">
-                        <span class="font-bold text-lg hidden sm:inline-block text-primary">LinkedPro</span>
+                    <a href="/" class="inline-flex items-center gap-2 font-medium text-lg hover:text-primary scramble-text">
+                        <img src="https://cdn-icons-png.flaticon.com/512/174/174857.png" alt="LinkedIn Logo" class="h-8 w-auto">
+                        <span class="font-bold text-lg hidden sm:inline-block text-gradient">LinkedIQ</span>
                     </a>
                 </div>
-                <div class="flex items-center gap-4">
-                    <div class="hidden sm:flex sm:items-center sm:gap-4">
-                        <button id="btn-batch" class="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium border-input bg-background shadow-sm hover:bg-accent hover:text-accent-foreground h-9 px-4 py-2 hover:opacity-90 transition-all border btn-outline">
-                            Batch Process
-                        </button>
-                        <button id="btn-history" class="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium border-input bg-background shadow-sm hover:bg-accent hover:text-accent-foreground h-9 px-4 py-2 hover:opacity-90 transition-all border btn-outline">
-                            Message History
-                        </button>
-                    </div>
-                    <button id="btn-settings" class="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium border-input bg-background shadow-sm hover:bg-accent hover:text-accent-foreground h-9 px-4 py-2 hover:opacity-90 transition-all border btn-outline">
-                        <i class="fas fa-cog mr-1"></i> Settings
+                <div class="flex items-center gap-3">
+                    <button id="btn-batch" class="linkd-btn-secondary px-4 py-2 text-sm hidden sm:flex items-center gap-2">
+                        <span>Batch</span>
+                    </button>
+                    <button id="btn-history" class="linkd-btn-secondary px-4 py-2 text-sm hidden sm:flex items-center gap-2">
+                        <span>History</span>
+                    </button>
+                    <button id="btn-settings" class="linkd-btn-secondary p-2 sm:p-2 rounded-full">
+                        <i class="fas fa-cog text-sm"></i>
                     </button>
                     <div class="sm:hidden">
-                        <button id="mobile-menu-button" class="inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-colors hover:bg-accent hover:text-accent-foreground h-9 w-9" type="button">
-                            <i class="fas fa-bars h-5 w-5"></i>
+                        <button id="mobile-menu-button" class="p-2 text-gray-600 hover:text-gray-900">
+                            <i class="fas fa-bars"></i>
                         </button>
                     </div>
                 </div>
             </div>
             <!-- Mobile Menu -->
-            <div id="mobile-menu" class="sm:hidden hidden bg-white border-t border-gray-200 p-4">
+            <div id="mobile-menu" class="sm:hidden hidden bg-white border-t border-gray-100 p-4">
                 <nav class="flex flex-col space-y-3">
-                    <button class="text-left px-3 py-2 text-sm rounded-md hover:bg-gray-100">Batch Process</button>
-                    <button class="text-left px-3 py-2 text-sm rounded-md hover:bg-gray-100">Message History</button>
+                    <button class="text-left px-3 py-2 text-sm rounded-md hover:bg-gray-50">Batch Process</button>
+                    <button class="text-left px-3 py-2 text-sm rounded-md hover:bg-gray-50">Message History</button>
                 </nav>
             </div>
         </header>
 
         <!-- Main Content -->
-        <main class="flex-1">
-            <div class="container mx-auto px-4 py-8">
-                <!-- Hero Section with Gradient Background and Particles -->
-                <div class="relative rounded-2xl mb-10 gradient-bg py-10 px-6 bg-animate overflow-hidden">
-                    <div id="particles-js" class="absolute inset-0 z-0"></div>
-                    <div class="text-center relative z-10">
-                        <h1 class="text-3xl sm:text-4xl font-bold text-textPrimary mb-4 font-display scramble-text">LinkedIn Hyper-Personalization</h1>
-                        <p class="text-lg text-textSecondary max-w-3xl mx-auto animate-fadeInUp">Generate hyper-personalized messages for LinkedIn connections</p>
-                    
-                    </div>
-                    <div class="absolute inset-0 bg-gradient-to-t inset-x-0 z-0 bottom-0 bg-white h-full [mask-image:radial-gradient(900px_at_center,transparent_30%,white)]"></div>
+        <main class="flex-1 linkd-gradient animate-gradient">
+            <div class="container mx-auto px-4 py-10 max-w-6xl">
+                <!-- Hero Section -->
+                <div class="text-center mb-12 fade-in">
+                    <h1 class="text-4xl sm:text-5xl font-bold mb-4 tracking-tight leading-tight text-gradient scramble-text">LinkedIn<span class="text-black">IQ</span></h1>
+                    <p class="text-lg text-gray-600 max-w-2xl mx-auto">Generate hyper-personalized messages for LinkedIn connections</p>
                 </div>
 
                 <!-- Tabs -->
-                <div class="mb-8">
-                    <div class="border-b border-gray-200">
-                        <nav class="-mb-px flex space-x-8" aria-label="Tabs">
-                            <button id="tab-single" class="tab-button border-primary text-primary whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm relative overflow-hidden" aria-current="page">
-                                <span class="relative z-10">Single Profile</span>
-                                <span class="absolute bottom-0 left-0 w-full h-0.5 bg-primary transform scale-x-100 origin-left transition-transform duration-300"></span>
+                <div class="mb-10 fade-in" style="animation-delay: 0.1s;">
+                    <div class="flex items-center justify-center border-b border-gray-200">
+                        <div class="inline-flex rounded-md gap-2" role="tablist">
+                            <button id="tab-single" class="px-6 py-3 text-sm font-medium rounded-t-lg border-b-2 border-primary bg-white shadow-sm text-primary" role="tab" aria-selected="true">
+                                Single Profile
                             </button>
-                            <button id="tab-batch" class="tab-button border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm relative overflow-hidden">
-                                <span class="relative z-10">Batch Processing</span>
-                                <span class="absolute bottom-0 left-0 w-full h-0.5 bg-primary transform scale-x-0 origin-left transition-transform duration-300"></span>
+                            <button id="tab-batch" class="px-6 py-3 text-sm font-medium rounded-t-lg border-b-2 border-transparent hover:text-gray-700" role="tab" aria-selected="false">
+                                Batch Processing
                             </button>
-                            <button id="tab-history" class="tab-button border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm relative overflow-hidden">
-                                <span class="relative z-10">Message History</span>
-                                <span class="absolute bottom-0 left-0 w-full h-0.5 bg-primary transform scale-x-0 origin-left transition-transform duration-300"></span>
+                            <button id="tab-history" class="px-6 py-3 text-sm font-medium rounded-t-lg border-b-2 border-transparent hover:text-gray-700" role="tab" aria-selected="false">
+                                Message History
                             </button>
-                        </nav>
+                        </div>
                     </div>
                 </div>
 
                 <!-- Tab Content -->
                 <div class="tab-content">
                     <!-- Single Profile Tab -->
-                    <div id="content-single" class="tab-pane">
+                    <div id="content-single" class="tab-pane fade-in" style="animation-delay: 0.2s;">
                         <div class="max-w-3xl mx-auto">
-                            <div class="mb-6">
-                                <label for="linkedin-url" class="block text-sm font-medium text-textSecondary mb-2">LinkedIn Profile URL</label>
-                                <div class="relative mt-1 rounded-md shadow-sm group">
-                                    <input type="text" name="linkedin-url" id="linkedin-url" class="block w-full rounded-xl border-gray-300 focus:border-primary focus:ring-primary sm:text-sm p-4 shadow-sm transition-all duration-300 hover:shadow-md" placeholder="https://www.linkedin.com/in/username/">
-                                    <div class="absolute inset-0 rounded-xl bg-gradient-to-r from-transparent via-primary/5 to-transparent opacity-0 group-hover:opacity-100 -z-10 group-focus-within:opacity-100 transition-opacity duration-500 shimmer"></div>
+                            <div class="linkd-card p-8 mb-8">
+                                <div class="mb-6">
+                                    <label for="linkedin-url" class="block text-sm font-medium text-gray-700 mb-2">LinkedIn Profile URL</label>
+                                    <input type="text" id="linkedin-url" class="linkd-input w-full" placeholder="https://www.linkedin.com/in/username/">
                                 </div>
-                            </div>
-                            <div class="flex justify-center pt-4">
-                                <button id="process-profile" class="inline-flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-xl shadow-sm text-white bg-primary hover:bg-primaryDark focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary transition-all btn-primary">
-                                    Process Profile <i class="fas fa-arrow-right ml-2"></i>
-                                </button>
+                                <div class="flex justify-center">
+                                    <button id="process-profile" class="linkd-btn-primary px-8 py-3 text-base font-medium">
+                                        Generate Message <i class="fas fa-arrow-right ml-2"></i>
+                                    </button>
+                                </div>
                             </div>
 
                             <!-- Results Section (Initially Hidden) -->
-                            <div id="profile-results" class="mt-10 hidden animate-fadeInUp">
-                                <div class="bg-white shadow overflow-hidden sm:rounded-xl card hover-glow">
-                                    <div class="px-5 py-5 sm:px-6 flex justify-between items-center">
+                            <div id="profile-results" class="mt-10 hidden">
+                                <div class="linkd-card overflow-hidden">
+                                    <div class="px-6 py-5 flex justify-between items-center border-b border-gray-100">
                                         <div>
-                                            <h3 class="text-lg leading-6 font-medium font-display text-textPrimary scramble-text">Profile Results</h3>
-                                            <p class="mt-1 max-w-2xl text-sm text-textSecondary">Details and personalized message</p>
+                                            <h3 class="text-xl font-semibold text-gradient scramble-text">Profile Results</h3>
+                                            <p class="text-sm text-gray-500 mt-1">Details and personalized message</p>
                                         </div>
                                         <div class="flex space-x-3">
-                                            <button class="text-sm font-medium text-primary hover:text-primaryDark flex items-center btn-outline rounded-lg px-3 py-1.5 border hover-scale">
-                                                <i class="fas fa-copy mr-1.5"></i> Copy Message
+                                            <button id="result-copy" class="linkd-btn-secondary px-3 py-1.5 text-sm flex items-center">
+                                                <i class="fas fa-copy mr-1.5"></i> Copy
                                             </button>
-                                            <button class="text-sm font-medium text-white bg-primary hover:bg-primaryDark flex items-center btn-primary rounded-lg px-3 py-1.5 hover-scale">
+                                            <button id="result-mark-sent" class="linkd-btn-primary px-3 py-1.5 text-sm flex items-center">
                                                 <i class="fas fa-check mr-1.5"></i> Mark Sent
                                             </button>
                                         </div>
                                     </div>
-                                    <div class="border-t border-gray-200">
+                                    <div>
                                         <dl>
-                                            <div class="bg-gray-50 px-4 py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6 hover:bg-gray-100 transition-all duration-300">
-                                                <dt class="text-sm font-medium text-textSecondary">Name</dt>
-                                                <dd id="result-name" class="mt-1 text-sm text-textPrimary sm:mt-0 sm:col-span-2">-</dd>
+                                            <div class="px-6 py-4 grid grid-cols-3 gap-4 hover:bg-gray-50">
+                                                <dt class="text-sm font-medium text-gray-500">Name</dt>
+                                                <dd id="result-name" class="text-sm col-span-2">-</dd>
                                             </div>
-                                            <div class="bg-white px-4 py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6 hover:bg-gray-50 transition-all duration-300">
-                                                <dt class="text-sm font-medium text-textSecondary">Headline</dt>
-                                                <dd id="result-headline" class="mt-1 text-sm text-textPrimary sm:mt-0 sm:col-span-2">-</dd>
+                                            <div class="px-6 py-4 grid grid-cols-3 gap-4 bg-gray-50 hover:bg-gray-100">
+                                                <dt class="text-sm font-medium text-gray-500">Headline</dt>
+                                                <dd id="result-headline" class="text-sm col-span-2">-</dd>
                                             </div>
-                                            <div class="bg-gray-50 px-4 py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6 hover:bg-gray-100 transition-all duration-300">
-                                                <dt class="text-sm font-medium text-textSecondary">Location</dt>
-                                                <dd id="result-location" class="mt-1 text-sm text-textPrimary sm:mt-0 sm:col-span-2">-</dd>
+                                            <div class="px-6 py-4 grid grid-cols-3 gap-4 hover:bg-gray-50">
+                                                <dt class="text-sm font-medium text-gray-500">Location</dt>
+                                                <dd id="result-location" class="text-sm col-span-2">-</dd>
                                             </div>
-                                            <div class="bg-white px-4 py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6 hover:bg-gray-50 transition-all duration-300">
-                                                <dt class="text-sm font-medium text-textSecondary">Company</dt>
-                                                <dd id="result-company" class="mt-1 text-sm text-textPrimary sm:mt-0 sm:col-span-2">-</dd>
+                                            <div class="px-6 py-4 grid grid-cols-3 gap-4 bg-gray-50 hover:bg-gray-100">
+                                                <dt class="text-sm font-medium text-gray-500">Company</dt>
+                                                <dd id="result-company" class="text-sm col-span-2">-</dd>
                                             </div>
-                                            <div class="bg-gray-50 px-4 py-5 sm:grid sm:grid-cols-3 sm:gap-4 sm:px-6 hover:bg-gray-100 transition-all duration-300">
-                                                <dt class="text-sm font-medium text-textSecondary">Summary</dt>
-                                                <dd id="result-summary" class="mt-1 text-sm text-textPrimary sm:mt-0 sm:col-span-2">-</dd>
+                                            <div class="px-6 py-4 grid grid-cols-3 gap-4 hover:bg-gray-50">
+                                                <dt class="text-sm font-medium text-gray-500">Summary</dt>
+                                                <dd id="result-summary" class="text-sm col-span-2 prose-sm">-</dd>
                                             </div>
-                                            <div class="bg-white px-4 py-5">
-                                                <dt class="text-sm font-medium text-textSecondary mb-2">Personalized Message</dt>
-                                                <dd class="mt-1">
-                                                    <div class="border border-gray-200 rounded-xl p-5 bg-gray-50 hover:shadow-inner transition-all duration-300">
-                                                        <div id="result-message" class="text-sm text-textPrimary whitespace-pre-line"></div>
+                                            <div class="px-6 py-5">
+                                                <dt class="text-sm font-medium text-gray-500 mb-3">Personalized Message</dt>
+                                                <dd>
+                                                    <div class="border border-gray-200 rounded-xl p-6 bg-gray-50">
+                                                        <div id="result-message" class="text-sm prose-sm"></div>
                                                     </div>
-                                                    <div class="mt-3 flex items-center justify-between">
-                                                        <div class="text-sm text-textSecondary">
+                                                    <div class="mt-3 flex items-center justify-end">
+                                                        <div class="text-xs text-gray-500">
                                                             <span id="character-count">0</span>/500 characters
                                                         </div>
                                                     </div>
@@ -486,23 +506,23 @@
                     </div>
 
                     <!-- Batch Processing Tab -->
-                    <div id="content-batch" class="tab-pane hidden">
+                    <div id="content-batch" class="tab-pane hidden fade-in" style="animation-delay: 0.2s;">
                         <div class="max-w-3xl mx-auto">
-                            <div class="mb-6">
-                                <label for="batch-urls" class="block text-sm font-medium text-textSecondary mb-2">LinkedIn Profile URLs (one per line, max 5)</label>
-                                <div class="mt-1">
-                                    <textarea id="batch-urls" rows="5" class="shadow-sm focus:ring-primary focus:border-primary block w-full sm:text-sm border border-gray-300 rounded-xl p-4" placeholder="https://www.linkedin.com/in/user1/&#10;https://www.linkedin.com/in/user2/&#10;https://www.linkedin.com/in/user3/"></textarea>
+                            <div class="linkd-card p-8 mb-8">
+                                <div class="mb-6">
+                                    <label for="batch-urls" class="block text-sm font-medium text-gray-700 mb-2">LinkedIn Profile URLs (one per line, max 5)</label>
+                                    <textarea id="batch-urls" rows="5" class="linkd-input w-full" placeholder="https://www.linkedin.com/in/user1/&#10;https://www.linkedin.com/in/user2/&#10;https://www.linkedin.com/in/user3/"></textarea>
                                 </div>
-                            </div>
-                            <div class="flex justify-center pt-4">
-                                <button id="process-batch" class="inline-flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-xl shadow-sm text-white bg-primary hover:bg-primaryDark focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary transition-all btn-primary">
-                                    Process Batch <i class="fas fa-arrow-right ml-2"></i>
-                                </button>
+                                <div class="flex justify-center">
+                                    <button id="process-batch" class="linkd-btn-primary px-8 py-3 text-base font-medium">
+                                        Process Batch <i class="fas fa-arrow-right ml-2"></i>
+                                    </button>
+                                </div>
                             </div>
 
                             <!-- Batch Results Section (Initially Hidden) -->
                             <div id="batch-results" class="mt-10 hidden">
-                                <h3 class="text-lg font-medium text-textPrimary mb-4 font-display">Batch Results</h3>
+                                <h3 class="text-xl font-semibold mb-4 text-gradient">Batch Results</h3>
                                 <div class="space-y-6" id="batch-results-container">
                                     <!-- Batch results will be dynamically inserted here -->
                                 </div>
@@ -511,31 +531,31 @@
                     </div>
 
                     <!-- History Tab -->
-                    <div id="content-history" class="tab-pane hidden">
+                    <div id="content-history" class="tab-pane hidden fade-in" style="animation-delay: 0.2s;">
                         <div class="max-w-6xl mx-auto">
                             <div class="flex justify-between items-center mb-6">
-                                <h3 class="text-lg font-medium text-textPrimary font-display">Message History</h3>
-                                <button id="export-csv" class="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-lg text-textSecondary bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary transition-all">
-                                    <i class="fas fa-download mr-2"></i> Export as CSV
+                                <h3 class="text-xl font-semibold text-gradient">Message History</h3>
+                                <button id="export-csv" class="linkd-btn-secondary px-4 py-2 text-sm font-medium flex items-center gap-2">
+                                    <i class="fas fa-download"></i> Export CSV
                                 </button>
                             </div>
                             
                             <!-- History Table -->
-                            <div class="shadow overflow-hidden border-b border-gray-200 sm:rounded-xl">
-                                <div class="w-full overflow-x-auto">
-                                    <table class="min-w-full divide-y divide-gray-200">
-                                        <thead class="bg-gray-50">
+                            <div class="linkd-card overflow-hidden">
+                                <div class="overflow-x-auto">
+                                    <table class="min-w-full divide-y divide-gray-200 linkd-table">
+                                        <thead>
                                             <tr>
-                                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-textSecondary uppercase tracking-wider">Name</th>
-                                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-textSecondary uppercase tracking-wider">Company</th>
-                                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-textSecondary uppercase tracking-wider">Profile URL</th>
-                                                <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-textSecondary uppercase tracking-wider w-32">Generated On</th>
-                                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-textSecondary uppercase tracking-wider">Message</th>
-                                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-textSecondary uppercase tracking-wider">Sent</th>
-                                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-textSecondary uppercase tracking-wider">Actions</th>
+                                                <th scope="col" class="px-6 py-3 text-left">Name</th>
+                                                <th scope="col" class="px-6 py-3 text-left">Company</th>
+                                                <th scope="col" class="px-6 py-3 text-left">Profile URL</th>
+                                                <th scope="col" class="px-4 py-3 text-left w-32">Generated On</th>
+                                                <th scope="col" class="px-6 py-3 text-left">Message</th>
+                                                <th scope="col" class="px-6 py-3 text-left">Sent</th>
+                                                <th scope="col" class="px-6 py-3 text-left">Actions</th>
                                             </tr>
                                         </thead>
-                                        <tbody id="history-table-body" class="bg-white divide-y divide-gray-200">
+                                        <tbody id="history-table-body" class="divide-y divide-gray-100">
                                             <!-- History rows will be dynamically inserted here -->
                                         </tbody>
                                     </table>
@@ -548,9 +568,9 @@
         </main>
 
         <!-- Footer -->
-        <footer class="w-full py-6 mt-8 border-t bg-white">
-            <div class="container mx-auto px-4">
-                <p class="text-sm font-medium text-center text-textSecondary">
+        <footer class="py-6 border-t border-gray-200 bg-white">
+            <div class="container mx-auto px-4 max-w-6xl">
+                <p class="text-sm text-center text-gray-500">
                     LinkedIn Hyper-Personalization Tool
                 </p>
             </div>
@@ -558,56 +578,140 @@
     </div>
 
     <!-- Modal for Message Details -->
-    <div id="message-modal" class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center hidden">
-        <div class="bg-white rounded-xl max-w-2xl w-full mx-4 overflow-hidden shadow-lg card">
-            <div class="px-5 py-5 sm:px-6 flex justify-between items-center border-b">
-                <h3 class="text-lg leading-6 font-medium text-textPrimary font-display">Message Details</h3>
-                <button id="close-modal" class="text-gray-400 hover:text-gray-500 p-1 rounded-md hover:bg-gray-100 transition-colors">
+    <div id="message-modal" class="fixed inset-0 bg-black bg-opacity-40 z-50 flex items-center justify-center hidden backdrop-blur-sm">
+        <div class="bg-white rounded-xl max-w-2xl w-full mx-4 linkd-card">
+            <div class="px-6 py-5 flex justify-between items-center border-b border-gray-100">
+                <h3 class="text-xl font-semibold text-gradient">Message Details</h3>
+                <button id="close-modal" class="text-gray-400 hover:text-gray-600 p-1 rounded-full hover:bg-gray-100">
                     <i class="fas fa-times"></i>
                 </button>
             </div>
-            <div class="px-5 py-5 sm:p-6">
-                <div class="text-sm font-medium text-textSecondary mb-2">Person</div>
-                <p id="modal-person" class="text-base mb-4 text-textPrimary">-</p>
-                
-                <div class="text-sm font-medium text-textSecondary mb-2">Company</div>
-                <p id="modal-company" class="text-base mb-4 text-textPrimary">-</p>
-                
-                <div class="text-sm font-medium text-textSecondary mb-2">Message</div>
-                <div class="border border-gray-200 rounded-xl p-5 bg-gray-50 mb-4">
-                    <p id="modal-message" class="text-sm whitespace-pre-line text-textPrimary">-</p>
+            <div class="p-6">
+                <div class="mb-4">
+                    <div class="text-sm font-medium text-gray-500 mb-1">Person</div>
+                    <p id="modal-person" class="text-base">-</p>
                 </div>
                 
-                <div class="flex justify-end space-x-3 mt-5">
-                    <button id="modal-copy" class="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-lg text-textSecondary bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary transition-all">
-                        <i class="fas fa-copy mr-2"></i> Copy Message
+                <div class="mb-4">
+                    <div class="text-sm font-medium text-gray-500 mb-1">Company</div>
+                    <p id="modal-company" class="text-base">-</p>
+                </div>
+                
+                <div class="text-sm font-medium text-gray-500 mb-1">Message</div>
+                <div class="border border-gray-200 rounded-xl p-5 bg-gray-50 mb-4">
+                    <div id="modal-message" class="text-sm prose-sm whitespace-pre-line">-</div>
+                </div>
+                
+                <div class="flex justify-end space-x-3 mt-6">
+                    <button id="modal-copy" class="linkd-btn-secondary px-4 py-2 text-sm font-medium flex items-center gap-2">
+                        <i class="fas fa-copy"></i> Copy Message
                     </button>
-                    <button id="modal-mark-sent" class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-lg shadow-sm text-white bg-primary hover:bg-primaryDark focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary btn-primary">
-                        <i class="fas fa-check mr-2"></i> Mark as Sent
+                    <button id="modal-mark-sent" class="linkd-btn-primary px-4 py-2 text-sm font-medium flex items-center gap-2">
+                        <i class="fas fa-check"></i> Mark as Sent
                     </button>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- Loading Spinner -->
-    <div id="loading-spinner" class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center hidden backdrop-blur-sm transition-all duration-300">
-        <div class="bg-white rounded-xl p-8 flex flex-col items-center shadow-lg animate-fadeInUp">
-            <div class="relative mb-6">
-                <div class="animate-spin rounded-full h-16 w-16 border-4 border-gray-200"></div>
-                <div class="animate-spin rounded-full h-16 w-16 border-t-4 border-primary absolute top-0 left-0" style="animation-duration: 1.5s;"></div>
-                <div class="absolute top-0 left-0 right-0 bottom-0 flex items-center justify-center">
-                    <span class="text-xs font-medium text-primary animate-pulse">AI</span>
+    <!-- Loading Spinner with Linkd-style -->
+    <div id="loading-spinner" class="fixed inset-0 bg-white bg-opacity-80 z-50 flex items-center justify-center hidden backdrop-blur-sm">
+        <div class="text-center">
+            <div class="flex justify-center mb-4">
+                <div class="relative">
+                    <div class="h-16 w-16 rounded-full border-4 border-indigo-100"></div>
+                    <div class="absolute inset-0 flex items-center justify-center">
+                        <div class="flex space-x-2">
+                            <div class="w-2 h-2 rounded-full bg-indigo-600 loading-dot"></div>
+                            <div class="w-2 h-2 rounded-full bg-indigo-600 loading-dot"></div>
+                            <div class="w-2 h-2 rounded-full bg-indigo-600 loading-dot"></div>
+                        </div>
+                    </div>
                 </div>
             </div>
-            <p id="loading-message" class="text-textSecondary mb-1">Processing LinkedIn profile...</p>
-            <div class="w-full max-w-xs bg-gray-200 rounded-full h-1 mt-2">
-                <div id="loading-progress" class="bg-primary h-1 rounded-full w-0 transition-all duration-300"></div>
+            <p id="loading-message" class="text-gray-600 mb-2 text-gradient font-medium">Processing LinkedIn profile...</p>
+            <div class="w-48 h-1 bg-gray-200 rounded-full mx-auto overflow-hidden">
+                <div id="loading-progress" class="h-full bg-gradient-to-r from-indigo-600 to-purple-600 transition-all duration-300 w-0"></div>
             </div>
         </div>
     </div>
 
     <!-- Script -->
     <script src="/js/main.js"></script>
+    
+    <!-- Text scramble effect script -->
+    <script>
+        class TextScramble {
+            constructor(el) {
+                this.el = el;
+                this.text = el.innerText;
+                this.chars = '!<>-_\\/[]{}—=+*^?#_____';
+                this.update = this.update.bind(this);
+                this.frame = 0;
+                this.frameRequest = null;
+                this.queue = [];
+                
+                // Add hover effect
+                el.addEventListener('mouseenter', () => this.scramble());
+            }
+            
+            setText(newText) {
+                const oldText = this.el.innerText;
+                const length = Math.max(oldText.length, newText.length);
+                this.queue = [];
+                
+                for (let i = 0; i < length; i++) {
+                    const from = oldText[i] || '';
+                    const to = newText[i] || '';
+                    const start = Math.floor(Math.random() * 40);
+                    const end = start + Math.floor(Math.random() * 40);
+                    this.queue.push({ from, to, start, end });
+                }
+                
+                cancelAnimationFrame(this.frameRequest);
+                this.frame = 0;
+                this.update();
+                return new Promise(resolve => this.resolve = resolve);
+            }
+            
+            update() {
+                let output = '';
+                let complete = 0;
+                
+                for (let i = 0; i < this.queue.length; i++) {
+                    const { from, to, start, end } = this.queue[i];
+                    
+                    if (this.frame >= end) {
+                        complete++;
+                        output += to;
+                    } else if (this.frame >= start) {
+                        const randomChar = this.chars[Math.floor(Math.random() * this.chars.length)];
+                        output += Math.random() < 0.1 ? to : randomChar;
+                    } else {
+                        output += from;
+                    }
+                }
+                
+                this.el.innerText = output;
+                if (complete === this.queue.length) {
+                    this.resolve();
+                } else {
+                    this.frameRequest = requestAnimationFrame(this.update);
+                    this.frame++;
+                }
+            }
+            
+            scramble() {
+                this.setText(this.text);
+            }
+        }
+        
+        // Initialize scramble text effect on load
+        document.addEventListener('DOMContentLoaded', () => {
+            document.querySelectorAll('.scramble-text').forEach(el => {
+                new TextScramble(el);
+            });
+        });
+    </script>
 </body>
 </html>

@@ -9,7 +9,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // Form submission handlers
     setupFormHandlers();
     
-    // Initialize hover and animation effects
+    // Initialize animations
     initAnimations();
 
     // Export CSV button handler
@@ -34,7 +34,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     document.body.removeChild(a);
                 })
                 .catch(err => {
-                    alert('Failed to export CSV. Please try again.');
+                    showToast('Failed to export CSV. Please try again.', 'error');
                     console.error(err);
                 });
         });
@@ -43,34 +43,22 @@ document.addEventListener('DOMContentLoaded', function() {
 
 // Handle tab switching
 function setupTabs() {
-    const tabs = document.querySelectorAll('.tab-button');
+    const tabs = document.querySelectorAll('[role="tab"]');
     const tabPanes = document.querySelectorAll('.tab-pane');
     
     tabs.forEach(tab => {
         tab.addEventListener('click', () => {
             // Remove active classes
             tabs.forEach(t => {
-                t.classList.remove('border-primary', 'text-primary');
-                t.classList.add('border-transparent', 'text-gray-500');
-                
-                // Reset the tab indicator
-                const indicator = t.querySelector('span:last-child');
-                if (indicator) {
-                    indicator.classList.remove('scale-x-100');
-                    indicator.classList.add('scale-x-0');
-                }
+                t.setAttribute('aria-selected', 'false');
+                t.classList.remove('border-primary', 'bg-white', 'shadow-sm', 'text-primary');
+                t.classList.add('border-transparent');
             });
             
             // Add active class to clicked tab
-            tab.classList.remove('border-transparent', 'text-gray-500');
-            tab.classList.add('border-primary', 'text-primary');
-            
-            // Animate the tab indicator
-            const indicator = tab.querySelector('span:last-child');
-            if (indicator) {
-                indicator.classList.remove('scale-x-0');
-                indicator.classList.add('scale-x-100');
-            }
+            tab.setAttribute('aria-selected', 'true');
+            tab.classList.add('border-primary', 'bg-white', 'shadow-sm', 'text-primary');
+            tab.classList.remove('border-transparent');
             
             // Hide all tab panes
             tabPanes.forEach(pane => {
@@ -80,7 +68,11 @@ function setupTabs() {
             // Show corresponding tab pane
             const tabId = tab.id;
             const paneId = 'content-' + tabId.split('-')[1];
-            document.getElementById(paneId).classList.remove('hidden');
+            const pane = document.getElementById(paneId);
+            pane.classList.remove('hidden');
+            
+            // Add fade-in animation
+            pane.classList.add('fade-in');
         });
     });
     
@@ -120,16 +112,12 @@ function setupFormHandlers() {
             const linkedinUrl = document.getElementById('linkedin-url').value.trim();
             
             if (!linkedinUrl) {
-                alert('Please enter a LinkedIn profile URL');
+                showToast('Please enter a LinkedIn profile URL', 'warning');
                 return;
             }
             
-            // Show loading spinner
-            loadingSpinner.classList.remove('hidden');
-            loadingMessage.textContent = 'Processing LinkedIn profile...';
-            
-            // Set initial progress
-            loadingProgress.style.width = '10%';
+            // Show loading with enhanced animation
+            const loader = showLoading('Analyzing LinkedIn profile...', 10);
             
             // Call the API endpoint
             fetch('/api/process_profile', {
@@ -140,41 +128,85 @@ function setupFormHandlers() {
                 body: JSON.stringify({ url: linkedinUrl }),
             })
             .then(response => {
-                loadingProgress.style.width = '60%';
+                loader.updateMessage('Generating personalized message...');
+                loader.setProgress(60);
+                
                 if (!response.ok) {
                     throw new Error('Network response was not ok');
                 }
                 return response.json();
             })
             .then(data => {
-                // Hide loading spinner
-                loadingSpinner.classList.add('hidden');
-                loadingProgress.style.width = '100%';
+                // Complete loading with success animation
+                loader.complete('Message generated successfully!');
                 
                 // Show results
                 profileResults.classList.remove('hidden');
+                profileResults.classList.add('fade-in');
                 
                 // Populate with API response data
                 document.getElementById('result-name').textContent = data.founder.full_name || 'Unknown';
                 document.getElementById('result-headline').textContent = data.founder.headline || 'N/A';
                 document.getElementById('result-location').textContent = data.founder.location || 'N/A';
                 document.getElementById('result-company').textContent = data.company.name || 'N/A';
-                document.getElementById('result-summary').textContent = data.summary || 'No summary available';
-                document.getElementById('result-message').textContent = data.message || '';
+                document.getElementById('result-summary').innerHTML = parseMarkdown(data.summary) || 'No summary available';
+                document.getElementById('result-message').innerHTML = parseMarkdown(data.message) || '';
                 
                 // Update character count
                 const messageLength = data.message ? data.message.length : 0;
                 document.getElementById('character-count').textContent = messageLength.toString();
                 
-                // Apply text scramble effect to new content
-                document.querySelectorAll('.scramble-text').forEach(element => {
-                    new TextScramble(element);
-                });
+                // Add message_id to the Mark Sent button
+                const markSentBtn = document.querySelector('#profile-results .linkd-btn-primary');
+                if (markSentBtn && data.message_id) {
+                    markSentBtn.setAttribute('data-id', data.message_id);
+                    
+                    // Add event listener if not already added
+                    if (!markSentBtn._hasListener) {
+                        markSentBtn._hasListener = true;
+                        markSentBtn.addEventListener('click', function() {
+                            const messageId = this.getAttribute('data-id');
+                            if (!messageId) {
+                                showToast('Cannot mark as sent: No message ID', 'warning');
+                                return;
+                            }
+                            
+                            // Show loading state
+                            const originalHtml = this.innerHTML;
+                            this.innerHTML = '<i class="fas fa-spinner fa-spin mr-1.5"></i> Processing...';
+                            this.disabled = true;
+                            
+                            markMessageAsSent(messageId, () => {
+                                // Show success
+                                this.innerHTML = '<i class="fas fa-check mr-1.5"></i> Marked as Sent';
+                                this.classList.add('bg-green-600');
+                                showToast('Message marked as sent!', 'success');
+                            });
+                        });
+                    }
+                }
+
+                // Add copy functionality
+                const copyBtn = document.querySelector('#result-copy');
+                if (copyBtn) {
+                    copyBtn.addEventListener('click', function() {
+                        const message = document.getElementById('result-message').innerText;
+                        copyToClipboard(message);
+                        
+                        // Show visual feedback
+                        const originalHtml = this.innerHTML;
+                        this.innerHTML = '<i class="fas fa-check text-green-600 mr-1.5"></i> Copied!';
+                        
+                        setTimeout(() => {
+                            this.innerHTML = originalHtml;
+                        }, 2000);
+                    });
+                }
             })
             .catch(error => {
                 console.error('Error processing profile:', error);
-                loadingSpinner.classList.add('hidden');
-                alert('Error processing profile. Please try again later.');
+                loader.error('Error processing profile. Please try again.');
+                showToast('Error processing profile. Please try again later.', 'error');
             });
         });
     }
@@ -186,7 +218,7 @@ function setupFormHandlers() {
             const batchUrls = document.getElementById('batch-urls').value.trim();
             
             if (!batchUrls) {
-                alert('Please enter at least one LinkedIn profile URL');
+                showToast('Please enter at least one LinkedIn profile URL', 'warning');
                 return;
             }
             
@@ -194,7 +226,7 @@ function setupFormHandlers() {
             const urls = batchUrls.split('\n').filter(url => url.trim());
             
             if (urls.length > 5) {
-                alert('You can process a maximum of 5 profiles at once');
+                showToast('You can process a maximum of 5 profiles at once', 'warning');
                 return;
             }
             
@@ -224,7 +256,9 @@ function setupFormHandlers() {
                 loadingProgress.style.width = '100%';
                 
                 // Show batch results
-                document.getElementById('batch-results').classList.remove('hidden');
+                const batchResults = document.getElementById('batch-results');
+                batchResults.classList.remove('hidden');
+                batchResults.classList.add('fade-in');
                 
                 // Create batch results cards
                 const container = document.getElementById('batch-results-container');
@@ -243,16 +277,13 @@ function setupFormHandlers() {
                     });
                 } else {
                     // Handle case where API returns a single result or error object
-                    container.innerHTML = '<div class="bg-red-50 p-4 rounded-xl">Error processing batch profiles</div>';
+                    container.innerHTML = '<div class="bg-red-50 p-4 rounded-xl text-red-600">Error processing batch profiles</div>';
                 }
-                
-                // Apply hover effects to new elements
-                applyHoverEffects();
             })
             .catch(error => {
                 console.error('Error processing batch:', error);
                 loadingSpinner.classList.add('hidden');
-                alert('Error processing batch profiles. Please try again later.');
+                showToast('Error processing batch profiles. Please try again later.', 'error');
             });
         });
     }
@@ -261,133 +292,213 @@ function setupFormHandlers() {
     document.getElementById('tab-history')?.addEventListener('click', loadMessageHistory);
 }
 
-// Create a batch result card with actual data
+// Enhanced batch result card with interactive effects
 function createBatchResultCard(data) {
     const card = document.createElement('div');
-    card.className = 'bg-white shadow overflow-hidden sm:rounded-xl card mb-4';
+    card.className = 'linkd-card overflow-hidden fade-in relative';
+    card.style.transition = 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)';
+    
+    // Add subtle hover interaction
+    card.addEventListener('mouseenter', () => {
+        card.style.transform = 'translateY(-4px)';
+        card.style.boxShadow = '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)';
+    });
+    
+    card.addEventListener('mouseleave', () => {
+        card.style.transform = 'translateY(0)';
+        card.style.boxShadow = '0 1px 3px rgba(0, 0, 0, 0.05)';
+    });
     
     card.innerHTML = `
-        <div class="px-5 py-4 flex justify-between items-center">
-            <div>
-                <h4 class="text-md font-medium text-textPrimary">${data.name}</h4>
-                <p class="text-sm text-textSecondary">${data.company}</p>
+        <div class="absolute top-0 right-0 mt-4 mr-4 opacity-0 transition-opacity duration-300" id="card-toolbar">
+            <div class="bg-white rounded-lg shadow-md flex items-center p-1">
+                <button class="view-message p-1.5 text-indigo-600 hover:text-indigo-900 hover:bg-indigo-50 rounded-md transition-colors" 
+                    data-message="${encodeURIComponent(data.message)}" data-name="${data.name}" data-company="${data.company}"
+                    title="View full message">
+                    <i class="fas fa-expand-alt"></i>
+                </button>
+                <button class="copy-message p-1.5 text-indigo-600 hover:text-indigo-900 hover:bg-indigo-50 rounded-md transition-colors ml-1" 
+                    data-message="${encodeURIComponent(data.message)}"
+                    title="Copy to clipboard">
+                    <i class="fas fa-copy"></i>
+                </button>
+                <button class="mark-sent p-1.5 text-indigo-600 hover:text-indigo-900 hover:bg-indigo-50 rounded-md transition-colors ml-1" 
+                    data-id="${data.message_id}"
+                    title="Mark as sent">
+                    <i class="fas fa-check"></i>
+                </button>
             </div>
-            <div class="flex space-x-2">
-                <button class="view-message text-xs font-medium text-primary hover:text-primaryDark flex items-center rounded-lg px-2 py-1 hover:bg-gray-50 transition-colors" data-message="${encodeURIComponent(data.message)}" data-name="${data.name}" data-company="${data.company}">
-                    <i class="fas fa-eye mr-1"></i> View
+        </div>
+
+        <div class="p-5 border-b border-gray-100 flex justify-between items-center">
+            <div>
+                <h4 class="font-medium scramble-text">${data.name}</h4>
+                <p class="text-sm text-gray-500">${data.company}</p>
+            </div>
+            <div class="flex space-x-2 sm:flex md:hidden lg:hidden xl:hidden">
+                <button class="view-message text-xs flex items-center gap-1 text-indigo-600 hover:text-indigo-800 px-2 py-1 rounded hover:bg-indigo-50 transition-colors" data-message="${encodeURIComponent(data.message)}" data-name="${data.name}" data-company="${data.company}">
+                    <i class="fas fa-eye"></i> View
                 </button>
-                <button class="copy-message text-xs font-medium text-primary hover:text-primaryDark flex items-center rounded-lg px-2 py-1 hover:bg-gray-50 transition-colors" data-message="${encodeURIComponent(data.message)}">
-                    <i class="fas fa-copy mr-1"></i> Copy
+                <button class="mark-sent linkd-btn-primary text-xs px-3 py-1 rounded" data-id="${data.message_id}">
+                    <i class="fas fa-check mr-1"></i> Send
                 </button>
-                <button class="mark-sent text-xs font-medium text-white bg-primary hover:bg-primaryDark flex items-center rounded-lg px-2 py-1" data-id="${data.message_id}">
-                    <i class="fas fa-check mr-1"></i> Mark Sent
-                </button>
+            </div>
+        </div>
+        <div class="p-5 bg-gray-50 hover:bg-gray-100 transition-colors">
+            <div class="text-sm mb-2 text-gray-500">Message Preview:</div>
+            <div class="text-sm text-gray-700 line-clamp-3 message-preview prose-sm">
+                ${parseMarkdown(data.message.substring(0, 250))}${data.message.length > 250 ? '...' : ''}
             </div>
         </div>
     `;
     
+    // Show toolbar on hover
+    card.addEventListener('mouseenter', () => {
+        const toolbar = card.querySelector('#card-toolbar');
+        toolbar.classList.add('opacity-100');
+    });
+    
+    card.addEventListener('mouseleave', () => {
+        const toolbar = card.querySelector('#card-toolbar');
+        toolbar.classList.remove('opacity-100');
+    });
+    
     // Add event listeners for buttons
-    card.querySelector('.view-message').addEventListener('click', function() {
-        const message = decodeURIComponent(this.getAttribute('data-message'));
-        const name = this.getAttribute('data-name');
-        const company = this.getAttribute('data-company');
-        showMessageModal(name, company, message);
-    });
-    
-    card.querySelector('.copy-message').addEventListener('click', function() {
-        const message = decodeURIComponent(this.getAttribute('data-message'));
-        copyToClipboard(message);
-    });
-    
-    if (data.message_id) {
-        const markSentBtn = card.querySelector('.mark-sent');
-        markSentBtn.disabled = false;
-        markSentBtn.classList.remove('opacity-50');
-        markSentBtn.addEventListener('click', function() {
-            const messageId = this.getAttribute('data-id');
-            markMessageAsSent(messageId, () => {
-                // Disable the button and show as sent
-                markSentBtn.disabled = true;
-                markSentBtn.classList.add('opacity-50');
-                markSentBtn.innerHTML = '<i class="fas fa-check mr-1"></i> Sent';
-                // Optionally show a toast or alert
-                // alert('Marked as sent!');
-            });
+    const viewButtons = card.querySelectorAll('.view-message');
+    viewButtons.forEach(button => {
+        button.addEventListener('click', function() {
+            const message = decodeURIComponent(this.getAttribute('data-message'));
+            const name = this.getAttribute('data-name');
+            const company = this.getAttribute('data-company');
+            const messageId = data.message_id;
+            showMessageModal(name, company, message, messageId);
         });
-    } else {
-        card.querySelector('.mark-sent').disabled = true;
-        card.querySelector('.mark-sent').classList.add('opacity-50');
-    }
+    });
     
-    // Add hover animation to the card
-    card.classList.add('hover-scale');
+    card.querySelectorAll('.copy-message').forEach(button => {
+        button.addEventListener('click', function() {
+            const message = decodeURIComponent(this.getAttribute('data-message'));
+            copyToClipboard(message);
+            
+            // Add visual feedback
+            const originalIcon = this.innerHTML;
+            this.innerHTML = '<i class="fas fa-check"></i>';
+            this.classList.add('text-green-600');
+            
+            setTimeout(() => {
+                this.innerHTML = originalIcon;
+                this.classList.remove('text-green-600');
+            }, 1500);
+        });
+    });
+    
+    card.querySelectorAll('.mark-sent').forEach(button => {
+        if (data.message_id) {
+            button.disabled = false;
+            button.addEventListener('click', function() {
+                const messageId = this.getAttribute('data-id');
+                
+                // Add loading state
+                const originalHtml = this.innerHTML;
+                this.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+                this.disabled = true;
+                
+                markMessageAsSent(messageId, () => {
+                    // Show success
+                    this.innerHTML = '<i class="fas fa-check"></i>';
+                    this.classList.add('text-green-600');
+                    card.classList.add('opacity-75');
+                    
+                    // Add sent badge
+                    const badge = document.createElement('div');
+                    badge.className = 'absolute top-0 left-0 bg-green-500 text-white text-xs px-2 py-1 rounded-br-lg';
+                    badge.innerHTML = '<i class="fas fa-check mr-1"></i> Sent';
+                    card.appendChild(badge);
+                    
+                    showToast('Message marked as sent!', 'success');
+                });
+            });
+        } else {
+            button.disabled = true;
+            button.classList.add('opacity-50');
+        }
+    });
+    
+    // Make message preview clickable to view full message
+    const preview = card.querySelector('.message-preview');
+    preview.style.cursor = 'pointer';
+    preview.addEventListener('click', () => {
+        const viewButton = card.querySelector('.view-message');
+        viewButton.click();
+    });
+    
+    // Initialize text scramble effect on name
+    setTimeout(() => {
+        const nameElement = card.querySelector('.scramble-text');
+        new TextScramble(nameElement);
+    }, 100);
     
     return card;
 }
 
-// Initialize animations and hover effects
+// Initialize animations
 function initAnimations() {
-    // Initialize text scramble effect
+    // Rerun the text scramble for all elements
     document.querySelectorAll('.scramble-text').forEach(element => {
-        new TextScramble(element);
-    });
-    
-    // Add hover listeners for animation triggers
-    document.querySelectorAll('.bg-animate').forEach(element => {
-        element.addEventListener('mouseenter', () => {
-            element.classList.add('animate-pulse-slow');
-        });
-        
-        element.addEventListener('mouseleave', () => {
-            element.classList.remove('animate-pulse-slow');
-        });
+        // Ensure initialization when elements are added dynamically
+        if (!element._scramble) {
+            element._scramble = new TextScramble(element);
+        }
     });
 }
 
-// Text Scramble Effect (inspired by Stanford Linkd)
+// Enhanced Text Scramble Effect with colored characters
 class TextScramble {
     constructor(el) {
         this.el = el;
         this.originalText = el.innerText;
         this.chars = '!<>-_\\/[]{}—=+*^?#________';
+        this.colors = ['#4f46e5', '#6366f1', '#8b5cf6', '#d946ef', '#ec4899']; // Linkd gradient colors
         this.update = this.update.bind(this);
         
+        // Add hover effects
         el.addEventListener('mouseenter', () => {
             this.scramble();
+            el.style.transition = 'all 0.3s ease';
+            el.style.textShadow = '0 0 8px rgba(79, 70, 229, 0.3)';
         });
+        
+        el.addEventListener('mouseleave', () => {
+            el.style.textShadow = 'none';
+        });
+        
+        // Store reference to this instance in the element
+        el._scramble = this;
+        
+        // Add initial animation on page load for elements with auto-animate class
+        if (el.classList.contains('auto-animate')) {
+            setTimeout(() => this.scramble(), 1000 + Math.random() * 1000);
+        }
     }
     
-    scramble() {
-        const originalText = this.originalText;
-        const length = originalText.length;
-        let iteration = 0;
-        const maxIterations = 7;
+    setText(newText) {
+        const oldText = this.el.innerText;
+        const length = Math.max(oldText.length, newText.length);
+        this.queue = [];
         
-        clearInterval(this.interval);
+        for (let i = 0; i < length; i++) {
+            const from = oldText[i] || '';
+            const to = newText[i] || '';
+            const start = Math.floor(Math.random() * 15); // Faster start
+            const end = start + Math.floor(Math.random() * 20); // Shorter duration
+            const color = this.colors[Math.floor(Math.random() * this.colors.length)];
+            this.queue.push({ from, to, start, end, char: null, color });
+        }
         
-        this.interval = setInterval(() => {
-            this.el.innerText = originalText
-                .split('')
-                .map((char, index) => {
-                    if (char === ' ') return ' ';
-                    
-                    // If we've iterated enough for this character, show the original
-                    if (index < iteration / (maxIterations / length)) {
-                        return originalText[index];
-                    }
-                    
-                    // Otherwise, show a random character
-                    return this.chars[Math.floor(Math.random() * this.chars.length)];
-                })
-                .join('');
-            
-            if (iteration >= maxIterations) {
-                clearInterval(this.interval);
-                this.el.innerText = originalText;
-            }
-            
-            iteration += 1;
-        }, 50);
+        cancelAnimationFrame(this.frameRequest);
+        this.frame = 0;
+        this.update();
+        return new Promise(resolve => this.resolve = resolve);
     }
     
     update() {
@@ -395,16 +506,17 @@ class TextScramble {
         let complete = 0;
         
         for (let i = 0, n = this.queue.length; i < n; i++) {
-            let { from, to, start, end, char } = this.queue[i];
+            let { from, to, start, end, char, color } = this.queue[i];
             if (this.frame >= end) {
                 complete++;
                 output += to;
             } else if (this.frame >= start) {
                 if (!char || Math.random() < 0.28) {
-                    char = this.randomChar();
+                    char = this.chars[Math.floor(Math.random() * this.chars.length)];
                     this.queue[i].char = char;
+                    this.queue[i].color = this.colors[Math.floor(Math.random() * this.colors.length)];
                 }
-                output += `<span class="scramble-char">${char}</span>`;
+                output += `<span class="scramble-char" style="color:${color}">${char}</span>`;
             } else {
                 output += from;
             }
@@ -412,6 +524,7 @@ class TextScramble {
         
         this.el.innerHTML = output;
         if (complete === this.queue.length) {
+            this.el.innerHTML = this.originalText; // Reset to clean text
             this.resolve();
         } else {
             this.frameRequest = requestAnimationFrame(this.update);
@@ -419,8 +532,8 @@ class TextScramble {
         }
     }
     
-    randomChar() {
-        return this.chars[Math.floor(Math.random() * this.chars.length)];
+    scramble() {
+        this.setText(this.originalText);
     }
 }
 
@@ -487,7 +600,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
                 document.getElementById('modal-person').textContent = name;
                 document.getElementById('modal-company').textContent = company;
-                document.getElementById('modal-message').textContent = message;
+                document.getElementById('modal-message').innerHTML = parseMarkdown(message);
 
                 messageModal.classList.remove('hidden');
             }
@@ -547,7 +660,7 @@ function loadMessageHistory() {
     if (!historyTable) return;
     
     // Show loading state
-    historyTable.innerHTML = '<tr><td colspan="6" class="text-center py-4">Loading message history...</td></tr>';
+    historyTable.innerHTML = '<tr><td colspan="7" class="text-center py-6 text-gray-500"><div class="flex justify-center"><div class="flex space-x-2"><div class="w-2 h-2 rounded-full bg-indigo-600 loading-dot"></div><div class="w-2 h-2 rounded-full bg-indigo-600 loading-dot"></div><div class="w-2 h-2 rounded-full bg-indigo-600 loading-dot"></div></div></div><div class="mt-2">Loading message history...</div></td></tr>';
     
     // Call the API endpoint
     fetch('/api/message_history')
@@ -564,33 +677,34 @@ function loadMessageHistory() {
             if (Array.isArray(data) && data.length > 0) {
                 data.forEach(message => {
                     const row = document.createElement('tr');
-                    row.className = 'hover:bg-gray-50';
                     
                     const isSent = message.sent ? 'checked' : '';
                     const formattedDate = new Date(message.generated_date).toLocaleDateString();
                     
                     row.innerHTML = `
-                        <td class="px-6 py-4 whitespace-nowrap">${message.full_name}</td>
-                        <td class="px-6 py-4 whitespace-nowrap">${message.company_name || 'N/A'}</td>
-                        <td class="px-6 py-4 whitespace-nowrap">
-                            <a href="${message.linkedin_url}" target="_blank" class="text-primary hover:underline">
-                                ${message.linkedin_url.substring(0, 30)}...
+                        <td class="px-6 py-4 text-sm">${message.full_name}</td>
+                        <td class="px-6 py-4 text-sm">${message.company_name || 'N/A'}</td>
+                        <td class="px-6 py-4 text-sm">
+                            <a href="${message.linkedin_url}" target="_blank" class="text-indigo-600 hover:text-indigo-800 hover:underline">
+                                ${message.linkedin_url.substring(0, 24)}...
                             </a>
                         </td>
-                        <td class="px-6 py-4 whitespace-nowrap">${formattedDate}</td>
-                        <td class="px-6 py-4 whitespace-nowrap max-w-xs overflow-x-auto" style="max-width: 300px;">
+                        <td class="px-4 py-4 text-sm text-gray-500">${formattedDate}</td>
+                        <td class="px-6 py-4 text-sm max-w-xs" style="max-width: 200px;">
                             <div class="truncate" title="${message.message_text}">${message.message_text || ''}</div>
                         </td>
-                        <td class="px-6 py-4 whitespace-nowrap">
-                            <input type="checkbox" ${isSent} class="mark-sent-checkbox" data-id="${message.id}">
+                        <td class="px-6 py-4">
+                            <input type="checkbox" ${isSent} class="linkd-checkbox mark-sent-checkbox" data-id="${message.id}">
                         </td>
-                        <td class="px-6 py-4 whitespace-nowrap">
-                            <button class="text-primary hover:text-primaryDark message-view" data-id="${message.id}" data-name="${message.full_name}" data-company="${message.company_name}" data-message="${encodeURIComponent(message.message_text)}">
-                                <i class="fas fa-eye"></i>
-                            </button>
-                            <button class="ml-2 text-primary hover:text-primaryDark message-copy" data-message="${encodeURIComponent(message.message_text)}">
-                                <i class="fas fa-copy"></i>
-                            </button>
+                        <td class="px-6 py-4">
+                            <div class="flex space-x-3">
+                                <button class="text-indigo-600 hover:text-indigo-800 message-view" title="View message" data-id="${message.id}" data-name="${message.full_name}" data-company="${message.company_name}" data-message="${encodeURIComponent(message.message_text)}">
+                                    <i class="fas fa-eye"></i>
+                                </button>
+                                <button class="text-indigo-600 hover:text-indigo-800 message-copy" title="Copy message" data-message="${encodeURIComponent(message.message_text)}">
+                                    <i class="fas fa-copy"></i>
+                                </button>
+                            </div>
                         </td>
                     `;
                     
@@ -602,7 +716,9 @@ function loadMessageHistory() {
                     checkbox.addEventListener('change', function() {
                         const messageId = this.getAttribute('data-id');
                         if (this.checked) {
-                            markMessageAsSent(messageId);
+                            markMessageAsSent(messageId, () => {
+                                showToast('Message marked as sent!', 'success');
+                            });
                         }
                     });
                 });
@@ -612,7 +728,8 @@ function loadMessageHistory() {
                         const name = this.getAttribute('data-name');
                         const company = this.getAttribute('data-company');
                         const message = decodeURIComponent(this.getAttribute('data-message'));
-                        showMessageModal(name, company, message);
+                        const messageId = this.getAttribute('data-id');
+                        showMessageModal(name, company, message, messageId);
                     });
                 });
                 
@@ -623,37 +740,111 @@ function loadMessageHistory() {
                     });
                 });
             } else {
-                historyTable.innerHTML = '<tr><td colspan="6" class="text-center py-4">No messages found.</td></tr>';
+                historyTable.innerHTML = '<tr><td colspan="7" class="text-center py-6 text-gray-500">No messages found.</td></tr>';
             }
         })
         .catch(error => {
             console.error('Error loading message history:', error);
-            historyTable.innerHTML = '<tr><td colspan="6" class="text-center py-4 text-red-500">Error loading message history.</td></tr>';
+            historyTable.innerHTML = '<tr><td colspan="7" class="text-center py-6 text-red-500">Error loading message history.</td></tr>';
         });
 }
 
-// Show message in modal
-function showMessageModal(name, company, message) {
+// Enhanced modal component
+function showMessageModal(name, company, message, messageId) {
     const modal = document.getElementById('message-modal');
-    if (modal) {
-        document.getElementById('modal-person').textContent = name;
-        document.getElementById('modal-company').textContent = company || 'N/A';
-        document.getElementById('modal-message').textContent = message;
+    if (!modal) return;
+    
+    // Prepare modal content
+    document.getElementById('modal-person').textContent = name;
+    document.getElementById('modal-company').textContent = company || 'N/A';
+    document.getElementById('modal-message').innerHTML = parseMarkdown(message);
+    
+    // Add copy functionality to modal copy button
+    document.getElementById('modal-copy').onclick = function() {
+        copyToClipboard(message);
         
-        // Add copy functionality to modal copy button
-        document.getElementById('modal-copy').onclick = function() {
-            copyToClipboard(message);
-        };
+        // Give visual feedback
+        const originalText = this.innerHTML;
+        this.innerHTML = '<i class="fas fa-check text-green-600"></i> Copied!';
         
-        modal.classList.remove('hidden');
+        setTimeout(() => {
+            this.innerHTML = originalText;
+        }, 2000);
+    };
+    
+    // Add mark as sent functionality with message ID
+    const markSentBtn = document.getElementById('modal-mark-sent');
+    if (markSentBtn) {
+        // Set or update the message ID attribute
+        if (messageId) {
+            markSentBtn.setAttribute('data-id', messageId);
+            markSentBtn.disabled = false;
+            markSentBtn.classList.remove('opacity-50');
+        } else {
+            markSentBtn.removeAttribute('data-id');
+            markSentBtn.disabled = true;
+            markSentBtn.classList.add('opacity-50');
+        }
+        
+        // Make sure we only add the event listener once
+        if (!markSentBtn._hasListener) {
+            markSentBtn._hasListener = true;
+            markSentBtn.addEventListener('click', function() {
+                const msgId = this.getAttribute('data-id');
+                if (!msgId) {
+                    showToast('Cannot mark as sent: No message ID found.', 'warning');
+                    return;
+                }
+                
+                // Show loading state
+                const originalHtml = this.innerHTML;
+                this.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
+                this.disabled = true;
+                
+                markMessageAsSent(msgId, () => {
+                    // Update button to show success
+                    this.innerHTML = '<i class="fas fa-check"></i> Marked as Sent';
+                    this.classList.add('bg-green-600');
+                    showToast('Message marked as sent!', 'success');
+                    
+                    // Close modal after a short delay
+                    setTimeout(() => {
+                        document.getElementById('close-modal').click();
+                    }, 1500);
+                });
+            });
+        }
     }
+    
+    // Add visual entrance animation
+    modal.classList.remove('hidden');
+    modal.classList.add('fade-in');
+    
+    // Add subtle animations to modal content
+    const modalContent = modal.querySelector('.bg-white');
+    modalContent.classList.add('modal-entry-animation');
+    setTimeout(() => {
+        const textElements = modalContent.querySelectorAll('p, h3');
+        textElements.forEach((el, i) => {
+            el.style.animation = `fadeSlideIn 0.3s ease forwards ${0.1 + i * 0.1}s`;
+            el.style.opacity = '0';
+            el.style.transform = 'translateY(10px)';
+        });
+    }, 100);
 }
 
-// Copy message to clipboard
+// Copy message to clipboard with improved handling
 function copyToClipboard(text) {
+    // If text has HTML entities or tags, create a temporary div to extract plain text
+    if (text.includes('<') || text.includes('&')) {
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = text;
+        text = tempDiv.textContent || tempDiv.innerText || '';
+    }
+    
     navigator.clipboard.writeText(text)
         .then(() => {
-            alert('Message copied to clipboard!');
+            showToast('Message copied to clipboard!', 'success');
         })
         .catch(err => {
             console.error('Could not copy text: ', err);
@@ -668,17 +859,17 @@ function copyToClipboard(text) {
             
             try {
                 document.execCommand('copy');
-                alert('Message copied to clipboard!');
+                showToast('Message copied to clipboard!', 'success');
             } catch (err) {
                 console.error('Fallback: Oops, unable to copy', err);
-                alert('Could not copy text. Please copy it manually.');
+                showToast('Could not copy text. Please copy it manually.', 'error');
             }
             
             document.body.removeChild(textArea);
         });
 }
 
-// Mark message as sent
+// Fix missing code in markMessageAsSent function
 function markMessageAsSent(messageId, callback) {
     if (!messageId) return;
     
@@ -701,9 +892,232 @@ function markMessageAsSent(messageId, callback) {
             if (typeof callback === 'function') callback();
         } else {
             console.error('Failed to mark message as sent');
+            showToast('Failed to mark message as sent', 'error');
         }
     })
     .catch(error => {
         console.error('Error marking message as sent:', error);
+        showToast('Error marking message as sent', 'error');
     });
+}
+
+// Function to show toast messages
+function showToast(message, type = 'info') {
+    // Remove any existing toasts
+    const existingToast = document.getElementById('toast');
+    if (existingToast) {
+        existingToast.remove();
+    }
+    
+    // Create toast container if it doesn't exist
+    let toastContainer = document.getElementById('toast-container');
+    if (!toastContainer) {
+        toastContainer = document.createElement('div');
+        toastContainer.id = 'toast-container';
+        toastContainer.className = 'fixed bottom-4 right-4 z-50';
+        document.body.appendChild(toastContainer);
+    }
+    
+    // Create toast element
+    const toast = document.createElement('div');
+    toast.id = 'toast';
+    toast.className = 'rounded-lg py-3 px-4 shadow-lg flex items-center gap-2 fade-in';
+    
+    // Set icon and styles based on type
+    let icon, bgColor, textColor;
+    switch (type) {
+        case 'success':
+            icon = '<i class="fas fa-check-circle"></i>';
+            bgColor = 'bg-green-50';
+            textColor = 'text-green-800';
+            break;
+        case 'error':
+            icon = '<i class="fas fa-exclamation-circle"></i>';
+            bgColor = 'bg-red-50';
+            textColor = 'text-red-800';
+            break;
+        case 'warning':
+            icon = '<i class="fas fa-exclamation-triangle"></i>';
+            bgColor = 'bg-yellow-50';
+            textColor = 'text-yellow-800';
+            break;
+        default:
+            icon = '<i class="fas fa-info-circle"></i>';
+            bgColor = 'bg-blue-50';
+            textColor = 'text-blue-800';
+    }
+    
+    toast.className += ` ${bgColor} ${textColor}`;
+    toast.innerHTML = `${icon} <span>${message}</span>`;
+    
+    // Add close button
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'ml-auto text-gray-400 hover:text-gray-600';
+    closeBtn.innerHTML = '<i class="fas fa-times"></i>';
+    closeBtn.onclick = () => toast.remove();
+    toast.appendChild(closeBtn);
+    
+    // Add to container
+    toastContainer.appendChild(toast);
+    
+    // Auto remove after 4 seconds
+    setTimeout(() => {
+        toast.classList.add('fade-out');
+        setTimeout(() => toast.remove(), 300);
+    }, 4000);
+}
+
+// Enhanced loading component with Linkd-style animation
+function showLoading(message = 'Processing...', initialProgress = 10) {
+    const loadingSpinner = document.getElementById('loading-spinner');
+    const loadingMessage = document.getElementById('loading-message');
+    const loadingProgress = document.getElementById('loading-progress');
+    
+    // Reset and show loading UI
+    loadingSpinner.classList.remove('hidden');
+    loadingMessage.innerHTML = `<span class="text-gradient">${message}</span>`;
+    loadingProgress.style.width = `${initialProgress}%`;
+    
+    // Simulated progress with natural-looking increments
+    let progress = initialProgress;
+    let interval;
+    
+    const advanceProgress = () => {
+        clearInterval(interval);
+        
+        interval = setInterval(() => {
+            // Advance progress randomly but slow down near completion
+            if (progress < 70) {
+                progress += Math.random() * 5 + 1; // Faster initially
+            } else if (progress < 90) {
+                progress += Math.random() * 2; // Slower in the middle
+            } else if (progress < 95) {
+                progress += Math.random() * 0.5; // Very slow at the end
+            }
+            
+            if (progress >= 95) {
+                clearInterval(interval);
+                progress = 95; // Cap at 95% until complete is called
+            }
+            
+            // Apply with smooth animation
+            loadingProgress.style.width = `${progress}%`;
+        }, 600);
+    };
+    
+    advanceProgress();
+    
+    // Return control methods
+    return {
+        // Update loading message
+        updateMessage: (newMessage) => {
+            loadingMessage.innerHTML = `<span class="text-gradient">${newMessage}</span>`;
+        },
+        
+        // Set progress to specific percentage
+        setProgress: (percent) => {
+            clearInterval(interval);
+            progress = Math.min(Math.max(percent, 0), 95); // Keep below 100% until complete
+            loadingProgress.style.width = `${progress}%`;
+            advanceProgress();
+        },
+        
+        // Complete loading animation
+        complete: (successMessage = 'Complete!') => {
+            clearInterval(interval);
+            
+            // Pulse animation on message
+            loadingMessage.classList.add('pulse-animation');
+            loadingMessage.innerHTML = `<span class="text-gradient">${successMessage}</span>`;
+            
+            // Complete progress bar with smooth animation
+            loadingProgress.style.transition = 'width 0.5s ease-out';
+            loadingProgress.style.width = '100%';
+            
+            // Display success animation
+            setTimeout(() => {
+                // Hide loading spinner with fade-out
+                loadingSpinner.classList.add('fade-out');
+                
+                // Remove after animation completes
+                setTimeout(() => {
+                    loadingSpinner.classList.add('hidden');
+                    loadingSpinner.classList.remove('fade-out');
+                    loadingMessage.classList.remove('pulse-animation');
+                    loadingProgress.style.width = '0';
+                }, 500);
+            }, 800);
+        },
+        
+        // Show error state
+        error: (errorMessage = 'An error occurred') => {
+            clearInterval(interval);
+            
+            // Change progress bar to error state
+            loadingProgress.classList.remove('bg-gradient-to-r', 'from-indigo-600', 'to-purple-600');
+            loadingProgress.classList.add('bg-red-500');
+            loadingProgress.style.width = '100%';
+            
+            // Update message with error
+            loadingMessage.innerHTML = `<span class="text-red-600">${errorMessage}</span>`;
+            loadingMessage.classList.add('shake-animation');
+            
+            // Hide after delay
+            setTimeout(() => {
+                loadingSpinner.classList.add('fade-out');
+                
+                setTimeout(() => {
+                    loadingSpinner.classList.add('hidden');
+                    loadingSpinner.classList.remove('fade-out');
+                    loadingMessage.classList.remove('shake-animation');
+                    loadingProgress.classList.remove('bg-red-500');
+                    loadingProgress.classList.add('bg-gradient-to-r', 'from-indigo-600', 'to-purple-600');
+                    loadingProgress.style.width = '0';
+                }, 500);
+            }, 2000);
+        }
+    };
+}
+
+// Add this function to parse basic markdown to HTML
+function parseMarkdown(text) {
+    if (!text) return '';
+    
+    // Handle headers
+    text = text.replace(/### (.*?)(\n|$)/g, '<h3 class="text-md font-semibold mt-3 mb-1">$1</h3>');
+    text = text.replace(/## (.*?)(\n|$)/g, '<h2 class="text-lg font-semibold mt-4 mb-2">$1</h2>');
+    text = text.replace(/# (.*?)(\n|$)/g, '<h1 class="text-xl font-semibold mt-4 mb-3">$1</h1>');
+    
+    // Handle bold
+    text = text.replace(/\*\*(.*?)\*\*/g, '<strong class="font-semibold">$1</strong>');
+    
+    // Handle italic
+    text = text.replace(/\*(.*?)\*/g, '<em>$1</em>');
+    text = text.replace(/_(.*?)_/g, '<em>$1</em>');
+    
+    // Handle lists
+    text = text.replace(/^\s*\*\s+(.*?)(\n|$)/gm, '<li class="ml-4">• $1</li>');
+    text = text.replace(/^\s*-\s+(.*?)(\n|$)/gm, '<li class="ml-4">• $1</li>');
+    text = text.replace(/^\s*\d+\.\s+(.*?)(\n|$)/gm, '<li class="ml-4 list-decimal">$1</li>');
+    
+    // Handle paragraphs
+    text = text.replace(/\n\n/g, '</p><p class="mb-2">');
+    
+    // Wrap lists
+    text = text.replace(/<li class="ml-4">(.+?)(?=<\/p>|$)/g, '<ul class="my-2">$&</ul>');
+    text = text.replace(/<li class="ml-4 list-decimal">(.+?)(?=<\/p>|$)/g, '<ol class="my-2 list-decimal list-inside">$&</ol>');
+    
+    // Fix any duplicate or nested list tags
+    text = text.replace(/<\/ul><ul class="my-2">/g, '');
+    text = text.replace(/<\/ol><ol class="my-2 list-decimal list-inside">/g, '');
+    
+    // Wrap with paragraph tags if not already
+    if (!text.startsWith('<p')) {
+        text = '<p class="mb-2">' + text;
+    }
+    if (!text.endsWith('</p>')) {
+        text = text + '</p>';
+    }
+    
+    return text;
 }
