@@ -9,3 +9,4 @@ linkedin_messages.csv
 chromedriver.log
 /stan
 /.vscode
+/playwright_user_data
