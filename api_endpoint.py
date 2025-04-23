@@ -16,7 +16,9 @@ import random # Import random for delay example if needed
 # print("nest_asyncio applied.") # Optional: confirmation message
 
 # Import necessary classes from main
-from main import LinkedInOutreachPipeline, DatabaseOps, Config, LinkedInScraper, CompanyResearcher, MessageGenerator
+from main import LinkedInOutreachPipeline, DatabaseOps, Config, LinkedInScraper, CompanyResearcher
+from message_generator import MessageGenerator # <-- ADD THIS IMPORT
+
 # LinkedInAuth is now primarily managed within LinkedInScraper
 # from linkedin_auth import LinkedInAuth # No longer need direct import here
 
@@ -54,10 +56,12 @@ def initialize_services():
 
             # Create the pipeline instance (uses shared config, db_ops)
             # Note: Pipeline itself doesn't hold the scraper state.
-            pipeline_instance = LinkedInOutreachPipeline()
-            # Overwrite pipeline's default db_ops with the singleton instance if needed
-            pipeline_instance.db = db_ops_instance
-            # We pass the scraper_instance to the pipeline methods when needed.
+            pipeline_instance = LinkedInOutreachPipeline(
+                scraper=scraper_instance, # Pass scraper if pipeline needs it directly (or remove if not)
+                researcher=CompanyResearcher(config_instance),
+                generator=MessageGenerator(config_instance),   # <-- ENSURE THIS USES IMPORTED CLASS
+                db_ops=db_ops_instance
+            )
 
             # Attempt initial login immediately after creating the scraper
             print("Attempting initial LinkedIn login...")
@@ -418,16 +422,16 @@ def export_csv():
 
 if __name__ == '__main__':
     # Create assets directory if it doesn't exist (relative to where script is run)
-    assets_dir = os.path.join(os.getcwd(), 'assets')
-    if not os.path.exists(assets_dir):
-        try:
-            os.makedirs(assets_dir)
-            print(f"Created directory: {assets_dir}")
-        except OSError as e:
-            print(f"Error creating assets directory: {e}")
-
-    # Configure logging for Flask app as well
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    initialization_result = initialize_services()
+    if initialization_result["status"] == "error":
+        print(f"FATAL: Could not initialize services: {initialization_result['message']}")
+        # Decide if you want to exit or run with limited functionality
+        # sys.exit(1) # Example: exit on fatal error
+        print("Warning: Flask server starting despite service initialization errors.")
+    elif initialization_result["status"] == "warning":
+         print(f"Warning: {initialization_result['message']}")
+    else:
+        print("Services initialized successfully during startup.")
 
     # Start the Flask app
     # use_reloader=False is important to prevent re-initialization and losing the persistent session
