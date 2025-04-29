@@ -24,7 +24,7 @@ class MessageGenerator:
         try:
             genai.configure(api_key=self.config.gemini_api_key)
             # Consider using a specific model if needed, e.g., 'gemini-1.5-flash'
-            self.generation_model = genai.GenerativeModel('gemini-1.5-flash') # Updated model name
+            self.generation_model = genai.GenerativeModel('gemini-2.0-flash') # Updated model name
             logger.info("MessageGenerator initialized with Gemini model.")
         except Exception as e:
              logger.error(f"Failed to configure Gemini or initialize model: {e}")

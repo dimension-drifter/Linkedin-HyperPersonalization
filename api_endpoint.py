@@ -437,4 +437,4 @@ if __name__ == '__main__':
     # use_reloader=False is important to prevent re-initialization and losing the persistent session
     # debug=True can cause issues with persistence if it triggers reloads, use cautiously
     print("Starting Flask development server on http://127.0.0.1:8000/")
-    app.run(host='127.0.0.1', port=8000, debug=False, use_reloader=False)
+    app.run(host='127.0.0.1', port=8000, debug=False, use_reloader=False,threaded=False, processes=1)

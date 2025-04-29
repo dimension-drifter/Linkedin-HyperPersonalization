@@ -497,7 +497,6 @@ class LinkedInScraper:
             logger.error(f"Error ensuring page for session verification: {e}")
             return False
 
-
 # Company research class using free APIs
 class CompanyResearcher:
     def __init__(self, config):
@@ -643,31 +642,42 @@ class DatabaseOps:
         conn = self._get_connection()
         cursor = conn.cursor()
         try:
-            # Assuming only one primary company per founder for now
-            # If multiple, adjust logic (e.g., check if exists first)
-            cursor.execute('''
-            INSERT INTO companies
-            (founder_id, name, title, description, website)
-            VALUES (?, ?, ?, ?, ?)
-            ON CONFLICT(founder_id) DO UPDATE SET
-                name=excluded.name,
-                title=excluded.title,
-                description=excluded.description,
-                website=excluded.website
-            ''', (
-                founder_id,
-                company_data.get('name', ''),
-                company_data.get('title', ''), # Make sure title is passed
-                company_data.get('description', '')[:5000], # Truncate
-                company_data.get('website', '')
-            ))
-            company_id = cursor.lastrowid # May not be accurate with ON CONFLICT
+            # Check if company exists for this founder
+            cursor.execute("SELECT id FROM companies WHERE founder_id = ?", (founder_id,))
+            existing = cursor.fetchone()
+            
+            if existing:
+                # If exists, update
+                cursor.execute('''
+                UPDATE companies
+                SET name = ?, title = ?, description = ?, website = ?
+                WHERE founder_id = ?
+                ''', (
+                    company_data.get('name', ''),
+                    company_data.get('title', ''),
+                    company_data.get('description', '')[:5000],
+                    company_data.get('website', ''),
+                    founder_id
+                ))
+                company_id = existing['id']
+            else:
+                # If not, insert new
+                cursor.execute('''
+                INSERT INTO companies
+                (founder_id, name, title, description, website)
+                VALUES (?, ?, ?, ?, ?)
+                ''', (
+                    founder_id,
+                    company_data.get('name', ''),
+                    company_data.get('title', ''),
+                    company_data.get('description', '')[:5000],
+                    company_data.get('website', '')
+                ))
+                company_id = cursor.lastrowid
+                
             conn.commit()
             logger.info(f"Saved/Updated company data for founder ID: {founder_id}")
-            # To get the actual company ID reliably after potential update:
-            cursor.execute("SELECT id FROM companies WHERE founder_id = ?", (founder_id,))
-            result = cursor.fetchone()
-            return result['id'] if result else None
+            return company_id
         except sqlite3.Error as e:
             logger.error(f"Database error saving company data: {str(e)}")
             conn.rollback()
