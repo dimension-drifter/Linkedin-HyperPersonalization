@@ -8,7 +8,8 @@ import time
 import re
 import csv
 from datetime import datetime
-from bs4 import BeautifulSoup
+# Remove BeautifulSoup import if no longer needed after refactor
+# from bs4 import BeautifulSoup
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError, Error as PlaywrightError # Import Playwright errors
 import google.generativeai as genai
 import logging
@@ -33,7 +34,7 @@ logger = logging.getLogger(__name__)
 def init_database():
     conn = sqlite3.connect('linkedin_outreach.db')
     cursor = conn.cursor()
-    
+
     # Create tables if they don't exist
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS founders (
@@ -46,7 +47,7 @@ def init_database():
         processed_date TEXT
     )
     ''')
-    
+
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS companies (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -58,7 +59,7 @@ def init_database():
         FOREIGN KEY (founder_id) REFERENCES founders (id)
     )
     ''')
-    
+
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS messages (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -69,7 +70,7 @@ def init_database():
         FOREIGN KEY (founder_id) REFERENCES founders (id)
     )
     ''')
-    
+
     conn.commit()
     conn.close()
 
@@ -87,17 +88,25 @@ class Config:
         self.linkedin_password = os.getenv("LINKEDIN_PASSWORD")
 
         # Configure Gemini
-        genai.configure(api_key=self.gemini_api_key)
+        try:
+            genai.configure(api_key=self.gemini_api_key)
+            # Use a model that supports vision input (Gemini 1.5 Flash/Pro are good choices)
+            self.vision_model = genai.GenerativeModel('gemini-1.5-flash')
+            logger.info("Gemini Vision Model configured.")
+        except Exception as e:
+            logger.error(f"Failed to configure Gemini or initialize vision model: {e}")
+            raise RuntimeError(f"Failed to initialize Gemini: {e}") from e
+
 
         # User agent for requests and Playwright
         self.user_agents = [
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36"
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36 Edg/123.0.0.0",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
             # Add more diverse and recent user agents
         ]
 
-# LinkedIn data extraction class using Playwright
+# LinkedIn data extraction class using Playwright and Vision AI
 class LinkedInScraper:
     def __init__(self, config):
         self.config = config
@@ -108,378 +117,251 @@ class LinkedInScraper:
             user_agents=config.user_agents
         )
         self.page = None # Initialize page as None
+        # Ensure the vision model is initialized from config
+        if not hasattr(config, 'vision_model'):
+             logger.error("Vision model not found in config during LinkedInScraper initialization.")
+             raise ValueError("Gemini vision model is required for LinkedInScraper.")
+        self.vision_model = config.vision_model
+
 
     def _ensure_page(self):
         """Ensures the Playwright page is initialized and ready."""
-        if self.page is None or self.page.is_closed():
-            logger.info("Playwright page not initialized or closed. Getting page from auth module.")
-            # Get the persistent page from LinkedInAuth
-            # Set headless=False for debugging if needed
-            self.page = self.linkedin_auth.get_page(headless=True)
-            if self.page is None or self.page.is_closed():
-                 raise RuntimeError("Failed to obtain a valid Playwright page.")
-        return self.page
+        # Reuse the existing page from the auth instance if available and open
+        if self.linkedin_auth._page and not self.linkedin_auth._page.is_closed():
+            self.page = self.linkedin_auth._page
+            logger.debug("Reusing existing Playwright page from LinkedInAuth.")
+            return self.page
+
+        # If not available or closed, try to get/create it via auth module
+        logger.info("Playwright page not available or closed. Ensuring login and getting page via auth module.")
+        if self.linkedin_auth.ensure_logged_in():
+            # ensure_logged_in should set up self.linkedin_auth._page
+            if self.linkedin_auth._page and not self.linkedin_auth._page.is_closed():
+                self.page = self.linkedin_auth._page
+                logger.info("Obtained valid Playwright page after ensuring login.")
+                return self.page
+            else:
+                raise RuntimeError("Failed to obtain a valid Playwright page after login attempt.")
+        else:
+            raise RuntimeError("Failed to log in to LinkedIn, cannot obtain page.")
+
 
     def login_to_linkedin(self):
         """Login to LinkedIn using the auth module (which uses Playwright)."""
         try:
-            self._ensure_page() # Make sure page exists
+            # Ensure login state via the auth module
             return self.linkedin_auth.ensure_logged_in()
         except Exception as e:
             logger.error(f"Error during LinkedIn login process: {e}")
             return False
 
     def extract_profile_data(self, profile_url):
-        """Extract data from a LinkedIn profile using Playwright."""
-        logger.info(f"Extracting data from LinkedIn profile: {profile_url}")
+        """
+        Extract data from a LinkedIn profile using Playwright and Vision API analysis.
+        """
+        logger.info(f"Extracting data from LinkedIn profile via Screenshot+Vision: {profile_url}")
+        
         try:
-            page = self._ensure_page() # Get the active page
-        except RuntimeError as e:
-             logger.error(f"Cannot extract profile data: {e}")
-             return None
-
-        max_retries = 3
-        retry_delay = 5 # Longer initial delay for Playwright navigation
-
-        for attempt in range(max_retries):
-            try:
-                logger.info(f"Navigating to profile URL (Attempt {attempt + 1}/{max_retries})...")
-                # Use wait_until='domcontentloaded' or 'load' or 'networkidle'
-                page.goto(profile_url, timeout=60000, wait_until="domcontentloaded")
-                # Add a small wait after navigation for stability
-                time.sleep(random.uniform(3, 6))
-                logger.info("Navigation successful.")
-
-                # Check if we landed on the correct profile page or got redirected/blocked
-                current_url = page.url
-                if "authwall" in current_url:
-                    logger.error("Hit LinkedIn Authwall. Cannot scrape profile. Session might be invalid.")
-                    # Try to re-validate session
-                    if not self.verify_session():
-                         logger.error("Session re-validation failed.")
-                         # Optionally try a full re-login here if critical
-                         # if self.login_to_linkedin():
-                         #    page.goto(profile_url, timeout=60000, wait_until="domcontentloaded") # Retry nav
-                         # else: return None
-                         return None # Give up if re-validation fails
-                    else: # If session is now valid, retry navigation
-                         logger.info("Session re-validated. Retrying navigation...")
-                         continue # Go to next attempt loop
-
-                if "/in/" not in current_url and profile_url.split('?')[0] not in current_url:
-                     logger.warning(f"Potential redirect detected. Expected profile, got: {current_url}")
-                     # Could be a valid but different profile URL (e.g., public view)
-                     # Or could be an error page. Add checks if needed.
-
-                # Basic check for profile content existence
-                try:
-                    page.wait_for_selector("h1", timeout=10000) # Wait for the main name header
-                except PlaywrightTimeoutError:
-                    logger.warning("Profile content (h1) not found quickly. Page might be empty or blocked.")
-                    # Consider retrying navigation or failing
-                    if attempt < max_retries - 1:
-                        logger.info("Retrying navigation due to missing content...")
-                        time.sleep(retry_delay)
-                        retry_delay += 3
-                        continue
-                    else:
-                        logger.error("Failed to find profile content after retries.")
-                        return None
-
-                break # Exit retry loop if navigation and basic check succeed
-
-            except PlaywrightTimeoutError as e:
-                logger.warning(f"Timeout navigating to profile (Attempt {attempt + 1}/{max_retries}): {e}")
-                if attempt < max_retries - 1:
-                    time.sleep(retry_delay)
-                    retry_delay *= 1.5 # Exponential backoff
-                else:
-                    logger.error(f"Failed to load profile after {max_retries} attempts due to timeout.")
-                    return None
-            except PlaywrightError as e:
-                 logger.error(f"Playwright error during navigation (Attempt {attempt + 1}/{max_retries}): {e}")
-                 if attempt < max_retries - 1:
-                     time.sleep(retry_delay)
-                     retry_delay += 3
-                 else:
-                     logger.error(f"Failed to load profile after {max_retries} attempts due to Playwright error.")
-                     return None
-            except Exception as e:
-                 logger.error(f"Unexpected error during navigation (Attempt {attempt + 1}/{max_retries}): {e}")
-                 # Stop retrying on unexpected errors
-                 return None
-
-        try:
-            logger.info("Scrolling profile page to load dynamic content...")
-            self._scroll_profile_page(page)
-
-            # --- Data Extraction using Playwright Locators ---
-            profile_data = {}
-
-            # Helper function to safely get text content
-            def get_text(locator):
-                try:
-                    return locator.text_content(timeout=5000).strip()
-                except (PlaywrightTimeoutError, PlaywrightError, AttributeError):
-                    return ""
-                except Exception as e:
-                    logger.debug(f"Minor error getting text: {e}")
-                    return ""
-
-            # Get full name - Try multiple selectors
-            name_selectors = [
-                "h1.text-heading-xlarge",
-                "h1.inline.t-24.t-black.t-normal.break-words",
-                "h1.text-heading-xlarge.inline.t-24.t-black.t-normal.break-words",
-                "h1.pv-text-details__left-panel--name",
-                ".pv-top-card-section__name", # Older selector
-                "section.pv-top-card h1" # General top card h1
-            ]
-            name_found = False
-            for selector in name_selectors:
-                locator = page.locator(selector).first # Use first() in case multiple match
-                if locator.is_visible(timeout=1000): # Quick check for visibility
-                    profile_data['full_name'] = get_text(locator)
-                    if profile_data['full_name']:
-                        logger.info(f"Found name using selector: {selector}")
-                        name_found = True
-                        break
-            if not name_found:
-                 logger.warning("Could not find name element using primary selectors.")
-                 profile_data['full_name'] = "Unknown"
-
-
-            # Get headline
-            headline_selectors = [
-                "div.text-body-medium.break-words", # Common selector
-                ".pv-top-card-section__headline", # Older selector
-                "div.pv-text-details__left-panel--headline", # Another possibility
-                "section.pv-top-card div.text-body-medium"
-            ]
-            headline_found = False
-            for selector in headline_selectors:
-                 locator = page.locator(selector).first
-                 if locator.is_visible(timeout=1000):
-                     profile_data['headline'] = get_text(locator)
-                     if profile_data['headline']:
-                         headline_found = True
-                         break
-            if not headline_found: profile_data['headline'] = ""
-
-
-            # Get location
-            location_selectors = [
-                "span.text-body-small.inline.t-black--light.break-words", # Common
-                ".pv-top-card-section__location", # Older
-                "span.pv-text-details__left-panel--location",
-                "section.pv-top-card span.text-body-small"
-            ]
-            location_found = False
-            for selector in location_selectors:
-                 locator = page.locator(selector).first
-                 if locator.is_visible(timeout=1000):
-                     profile_data['location'] = get_text(locator)
-                     # Simple validation: location usually contains a comma or country name
-                     if profile_data['location'] and (',' in profile_data['location'] or len(profile_data['location']) > 3):
-                         location_found = True
-                         break
-            if not location_found: profile_data['location'] = ""
-
-
-            # Get summary/about
-            profile_data['summary'] = ""
-            try:
-                # Find the "About" section first
-                about_section_locator = page.locator("section:has(h2:text-is('About'))", has_text="About").first
-                if about_section_locator.is_visible(timeout=5000):
-                    # Try to click "see more" within the about section
-                    see_more_button = about_section_locator.locator("button:has-text('see more')")
-                    if see_more_button.is_visible(timeout=1000):
-                        try:
-                            see_more_button.click(timeout=5000)
-                            time.sleep(0.5) # Wait for expansion
-                            logger.info("Clicked 'see more' in About section.")
-                        except (PlaywrightTimeoutError, PlaywrightError) as e:
-                            logger.warning(f"Could not click 'see more' in About: {e}")
-
-                    # Extract text from the main content area of the about section
-                    # This selector might need adjustment based on LinkedIn's structure
-                    about_text_locator = about_section_locator.locator("div.display-flex.ph5 > .inline-show-more-text > span[aria-hidden='true'], div.pv-shared-text-with-see-more > div > span").first
-                    profile_data['summary'] = get_text(about_text_locator)
-                    if not profile_data['summary']: # Fallback if specific span not found
-                         profile_data['summary'] = get_text(about_section_locator) # Get all text in section
-                         # Clean up the summary if needed (remove "About", "see more", etc.)
-                         profile_data['summary'] = profile_data['summary'].replace("About\n", "").replace("\nsee more", "").strip()
-
-                else:
-                     logger.info("About section not found.")
-
-            except (PlaywrightTimeoutError, PlaywrightError) as e:
-                logger.warning(f"Error extracting About section: {e}")
-            except Exception as e:
-                 logger.warning(f"Unexpected error extracting About section: {e}")
-
-
-            # Get experience section
-            profile_data['experiences'] = []
-            try:
-                logger.info("Extracting Experience section...")
-                # Locate the experience section container
-                # Use :has() pseudo-class for robustness
-                experience_section_locator = page.locator("section:has(h2:text-is('Experience'))", has_text="Experience").first
-
-                if experience_section_locator.is_visible(timeout=10000):
-                    # Find individual experience items within the section
-                    # Common structure: ul > li containing experience details
-                    experience_items = experience_section_locator.locator("ul > li.pvs-list__paged-list-item, ul > li.artdeco-list__item") # Adjust if structure changes
-
-                    item_count = experience_items.count()
-                    logger.info(f"Found {item_count} potential experience items.")
-
-                    for i in range(item_count):
-                        item = experience_items.nth(i)
-                        experience = {}
-
-                        # Extract Title (often the most prominent text)
-                        # Look for spans with specific classes or the first strong/bold text
-                        title_locator = item.locator("span.mr1.t-bold > span[aria-hidden='true'], span.t-bold > span[aria-hidden='true'], h3 > span[aria-hidden='true']").first
-                        experience['title'] = get_text(title_locator)
-
-                        # Extract Company Name (often follows title or is linked)
-                        # Look for secondary text, often with 't-normal' or linked
-                        company_locator = item.locator("span.t-14.t-normal > span[aria-hidden='true'], p.pv-entity__secondary-title > span[aria-hidden='true']").first
-                        experience['company'] = get_text(company_locator)
-
-                        # If company name is missing, sometimes it's part of a multi-role entry
-                        if not experience['company'] and experience['title']:
-                             # Check if the title contains " at " or similar separator
-                             if " at " in experience['title']:
-                                 parts = experience['title'].split(" at ", 1)
-                                 experience['title'] = parts[0].strip()
-                                 experience['company'] = parts[1].strip()
-
-                        # Extract Description (if available)
-                        desc_locator = item.locator("div.inline-show-more-text > span[aria-hidden='true'], div.pv-entity__description > span[aria-hidden='true']").first
-                        experience['description'] = get_text(desc_locator)
-                        # Click 'see more' for description if present
-                        desc_see_more = item.locator("button.inline-show-more-text__button:has-text('see more')")
-                        if desc_see_more.is_visible(timeout=500):
-                            try:
-                                desc_see_more.click(timeout=3000)
-                                time.sleep(0.3)
-                                experience['description'] = get_text(desc_locator) # Re-extract after click
-                            except (PlaywrightTimeoutError, PlaywrightError): pass # Ignore if click fails
-
-
-                        # Extract Company LinkedIn URL (if linked)
-                        company_link_locator = item.locator("a[href*='/company/']").first
-                        experience['company_linkedin_url'] = ""
-                        if company_link_locator.is_visible(timeout=500):
-                            try:
-                                href = company_link_locator.get_attribute('href', timeout=1000)
-                                if href: experience['company_linkedin_url'] = "https://www.linkedin.com" + href.split('?')[0] # Clean URL
-                            except (PlaywrightTimeoutError, PlaywrightError): pass
-
-
-                        # Only add if we have a title or company
-                        if experience.get('title') or experience.get('company'):
-                            profile_data['experiences'].append(experience)
-                            # logger.debug(f"Extracted Experience: {experience}")
-                        else:
-                             logger.debug(f"Skipping empty experience item {i}.")
-
-                else:
-                    logger.warning("Experience section not found or not visible.")
-
-            except (PlaywrightTimeoutError, PlaywrightError) as e:
-                logger.warning(f"Error processing Experience section: {e}")
-            except Exception as e:
-                 logger.warning(f"Unexpected error processing Experience section: {e}")
-
-
-            # Get education section (similar logic to experience)
-            profile_data['education'] = []
-            try:
-                logger.info("Extracting Education section...")
-                education_section_locator = page.locator("section:has(h2:text-is('Education'))", has_text="Education").first
-
-                if education_section_locator.is_visible(timeout=5000):
-                    education_items = education_section_locator.locator("ul > li.pvs-list__paged-list-item, ul > li.artdeco-list__item")
-                    item_count = education_items.count()
-                    logger.info(f"Found {item_count} potential education items.")
-
-                    for i in range(item_count):
-                        item = education_items.nth(i)
-                        education = {}
-
-                        # Institution Name
-                        inst_locator = item.locator("span.mr1.t-bold > span[aria-hidden='true'], span.t-bold > span[aria-hidden='true'], h3 > span[aria-hidden='true']").first
-                        education['institution'] = get_text(inst_locator)
-
-                        # Degree/Field of Study
-                        degree_locator = item.locator("span.t-14.t-normal > span[aria-hidden='true'], p > span[aria-hidden='true']").first # Check structure
-                        education['degree'] = get_text(degree_locator)
-
-                        if education.get('institution'):
-                            profile_data['education'].append(education)
-                            # logger.debug(f"Extracted Education: {education}")
-                        else:
-                             logger.debug(f"Skipping empty education item {i}.")
-                else:
-                    logger.warning("Education section not found or not visible.")
-
-            except (PlaywrightTimeoutError, PlaywrightError) as e:
-                logger.warning(f"Error processing Education section: {e}")
-            except Exception as e:
-                 logger.warning(f"Unexpected error processing Education section: {e}")
-
-
-            logger.info(f"Finished extracting data for {profile_data.get('full_name', profile_url)}")
-            return profile_data
-
-        except Exception as e:
-            logger.error(f"Critical error during Playwright profile data extraction: {str(e)}")
-            # Capture screenshot on critical failure for debugging
-            try:
-                 if page and not page.is_closed():
-                     screenshot_path = f"error_screenshot_{datetime.now():%Y%m%d_%H%M%S}.png"
-                     page.screenshot(path=screenshot_path, full_page=True)
-                     logger.info(f"Error screenshot saved to: {screenshot_path}")
-            except Exception as se:
-                 logger.error(f"Could not save error screenshot: {se}")
+            page = self._ensure_page()
+        except RuntimeError:
+            logger.error("Cannot access Playwright page")
             return None
+
+        try:
+            # Increased timeouts and better waiting strategy
+            logger.info(f"Navigating to profile URL...")
+            page.goto(profile_url, wait_until="networkidle", timeout=60000)  # Increased timeout to 60s
+            
+            # Wait for key profile elements to appear
+            try:
+                # Wait for either the profile section or any error message
+                page.wait_for_selector("section.artdeco-card, .error-container", timeout=15000)
+            except:
+                # If selector timing out, try proceeding anyway
+                pass
+                
+            # Scroll to ensure content loads
+            self._scroll_profile_page(page)
+            
+            # Take screenshot
+            screenshot_path = f"temp_profile_screenshot_{datetime.now():%Y%m%d%H%M%S}.png"
+            page.screenshot(path=screenshot_path, full_page=True)
+            
+            # Extract data from screenshot using Gemini Vision
+            profile_data = self._extract_data_from_screenshot(screenshot_path)
+            
+            # Clean up screenshot
+            try:
+                os.remove(screenshot_path)
+            except:
+                pass
+                
+            if not profile_data:
+                return None
+                
+            profile_data['linkedin_url'] = profile_url
+            return profile_data
+            
+        except Exception as e:
+            logger.error(f"Error extracting profile data: {str(e)}")
+            return None
+
+    def _extract_data_from_screenshot(self, image_path):
+        """
+        Uses Gemini Vision API to extract structured profile data from a screenshot.
+        """
+        logger.info(f"Sending screenshot {image_path} to Gemini Vision for analysis...")
+        try:
+            # Prepare the image input for Gemini
+            profile_image = {
+                'mime_type': 'image/png',
+                'data': self._read_image_bytes(image_path)
+            }
+
+            # Construct the prompt for Gemini
+            prompt = """
+            Analyze the provided LinkedIn profile screenshot and extract the following information in JSON format:
+            - full_name: The full name of the person.
+            - headline: The professional headline below the name.
+            - location: The geographical location.
+            - summary: The text content of the "About" section (if present).
+            - experiences: A list of recent work experiences, including:
+                - title: Job title.
+                - company: Company name.
+                - description: (Optional) A brief description if visible.
+            - education: A list of educational institutions attended, including:
+                - institution: Name of the school/university.
+                - degree: Degree or field of study (if visible).
+
+            Focus on extracting the text accurately as it appears in the image. If a section (like 'About' or 'Education') is not clearly visible or present, return an empty string or empty list for that field. Structure the output strictly as a JSON object.
+
+            Example JSON structure:
+            {
+              "full_name": "Jane Doe",
+              "headline": "Software Engineer at Tech Corp | AI Enthusiast",
+              "location": "San Francisco Bay Area",
+              "summary": "Experienced software engineer passionate about building scalable systems...",
+              "experiences": [
+                { "title": "Software Engineer", "company": "Tech Corp", "description": "Developed features for..." },
+                { "title": "Intern", "company": "Startup Inc", "description": null }
+              ],
+              "education": [
+                { "institution": "State University", "degree": "B.S. Computer Science" },
+                { "institution": "Community College", "degree": "Associate's Degree" }
+              ]
+            }
+            """
+
+            # Make the API call
+            response = self.vision_model.generate_content([prompt, profile_image])
+
+            # Process the response
+            if response and hasattr(response, 'text'):
+                extracted_text = response.text.strip()
+                logger.debug(f"Raw response from Gemini Vision:\n{extracted_text}")
+
+                # Attempt to parse the JSON response
+                try:
+                    # Clean potential markdown code block fences
+                    if extracted_text.startswith("```json"):
+                        extracted_text = extracted_text[7:]
+                    if extracted_text.endswith("```"):
+                        extracted_text = extracted_text[:-3]
+                    extracted_text = extracted_text.strip()
+
+                    profile_data = json.loads(extracted_text)
+                    logger.info("Successfully parsed JSON data from Gemini Vision response.")
+
+                    # Basic validation (check if essential keys exist)
+                    if not profile_data.get('full_name'):
+                         logger.warning("Extracted data missing 'full_name'. Quality may be low.")
+                         # Optionally add default values or handle as error
+                         profile_data.setdefault('full_name', 'Unknown')
+                    profile_data.setdefault('headline', '')
+                    profile_data.setdefault('location', '')
+                    profile_data.setdefault('summary', '')
+                    profile_data.setdefault('experiences', [])
+                    profile_data.setdefault('education', [])
+
+
+                    return profile_data
+                except json.JSONDecodeError as json_err:
+                    logger.error(f"Failed to parse JSON from Gemini Vision response: {json_err}")
+                    logger.error(f"Received text: {extracted_text}")
+                    return None
+            else:
+                logger.error("Received no valid text response from Gemini Vision API.")
+                return None
+
+        except genai.types.generation_types.BlockedPromptException as bpe:
+             logger.error(f"Gemini API call blocked: {bpe}")
+             return None
+        except Exception as e:
+            logger.error(f"Error during Gemini Vision API call or processing: {str(e)}", exc_info=True)
+            return None
+
+    def _read_image_bytes(self, image_path):
+        """Reads an image file and returns its byte content."""
+        try:
+            with open(image_path, "rb") as image_file:
+                return image_file.read()
+        except FileNotFoundError:
+            logger.error(f"Screenshot file not found at path: {image_path}")
+            raise
+        except Exception as e:
+            logger.error(f"Error reading image file {image_path}: {e}")
+            raise
+
+    # REMOVE OLD SELECTOR/BS4 BASED EXTRACTION METHODS
+    # def _try_playwright_selectors(self, page): ...
+    # def _extract_with_beautiful_soup(self, html_content, existing_data=None): ...
 
     def _scroll_profile_page(self, page):
         """Helper method to scroll through the profile page using Playwright."""
-        logger.debug("Scrolling page...")
+        logger.debug("Scrolling page to load content...")
         try:
             total_height = page.evaluate("document.body.scrollHeight")
             scroll_increment = 700 # Pixels to scroll each time
             current_scroll = 0
-            max_scrolls = 20 # Safety limit
+            max_scrolls = 25 # Increase max scrolls slightly for potentially longer pages
             scroll_count = 0
+            no_change_count = 0
+            prev_height = 0
 
-            while current_scroll < total_height and scroll_count < max_scrolls:
-                current_scroll += scroll_increment
-                page.evaluate(f"window.scrollTo(0, {current_scroll});")
-                time.sleep(random.uniform(0.6, 1.2)) # Wait for content load
+            while scroll_count < max_scrolls:
+                # Scroll down
+                page.evaluate(f"window.scrollBy(0, {scroll_increment});")
+                # Wait for scroll and potential content loading
+                time.sleep(random.uniform(0.8, 1.5)) # Slightly longer pauses
+
+                # Check new height
+                current_scroll = page.evaluate("window.pageYOffset")
                 new_height = page.evaluate("document.body.scrollHeight")
-                if new_height == total_height: # Stop if height doesn't change
-                    # Scroll a bit more just in case
-                    page.evaluate(f"window.scrollTo(0, {new_height});")
-                    time.sleep(0.5)
+
+                # Break if we've reached the bottom or height hasn't changed for a few scrolls
+                if current_scroll + page.evaluate("window.innerHeight") >= new_height:
+                    logger.debug("Reached bottom of the page.")
                     break
-                total_height = new_height
+                if new_height == prev_height:
+                    no_change_count += 1
+                    if no_change_count >= 3: # Stop if height doesn't change for 3 consecutive scrolls
+                        logger.debug("Page height stable, assuming end of scrollable content.")
+                        break
+                else:
+                    no_change_count = 0 # Reset counter if height changes
+
+                prev_height = new_height
                 scroll_count += 1
 
-            # Scroll back to top
-            page.evaluate("window.scrollTo(0, 0);")
-            time.sleep(0.5)
+            # Scroll back to top smoothly
+            page.evaluate("window.scrollTo({ top: 0, behavior: 'smooth' });")
+            time.sleep(1.0) # Wait for scroll to top
             logger.debug(f"Scrolling complete after {scroll_count} scrolls.")
         except (PlaywrightError, PlaywrightTimeoutError) as e:
             logger.warning(f"Error during page scrolling: {str(e)}")
         except Exception as e:
              logger.warning(f"Unexpected error during page scrolling: {str(e)}")
+
 
     def close(self):
         """Close the Playwright browser via the auth module."""
@@ -490,20 +372,26 @@ class LinkedInScraper:
     def verify_session(self):
         """Verify LinkedIn session using the auth module."""
         try:
-            # Ensure page exists before verifying. If it doesn't, verification will fail.
-            self._ensure_page()
+            # Session verification relies on the auth module's logic
             return self.linkedin_auth.verify_session()
         except Exception as e:
-            logger.error(f"Error ensuring page for session verification: {e}")
+            logger.error(f"Error during session verification call: {e}")
             return False
+
+    # REMOVE _find_element_with_retry if no longer used
+    # def _find_element_with_retry(self, page, selectors, timeout_ms=10000): ...
+
+# ... (rest of the classes: CompanyResearcher, DatabaseOps, LinkedInOutreachPipeline remain largely the same) ...
+# Ensure LinkedInOutreachPipeline uses the updated scraper correctly
 
 # Company research class using free APIs
 class CompanyResearcher:
     def __init__(self, config):
         self.config = config
-    
+
     def search_company_info(self, company_name):
         """Search for company information using free APIs and web scraping"""
+        # --- This method remains the same ---
         logger.info(f"Researching company: {company_name}")
         company_info = {
             'name': company_name,
@@ -512,223 +400,201 @@ class CompanyResearcher:
             'description': self._get_company_description(company_name)
         }
         return company_info
-    
+
     def _find_company_website(self, company_name):
-        """Find company website using DuckDuckGo search"""
+        # --- This method remains the same ---
         try:
-            # Encode company name for URL
             encoded_query = quote_plus(f"{company_name} official website")
             url = f"https://html.duckduckgo.com/html/?q={encoded_query}"
-            
-            headers = {
-                'User-Agent': random.choice(self.config.user_agents)
-            }
-            
-            response = requests.get(url, headers=headers)
+            headers = {'User-Agent': random.choice(self.config.user_agents)}
+            response = requests.get(url, headers=headers, timeout=10)
             if response.status_code == 200:
-                soup = BeautifulSoup(response.text, 'html.parser')
+                soup = BeautifulSoup(response.text, 'html.parser') # Need BS4 here
                 results = soup.find_all('a', {'class': 'result__url'})
-                
-                # Filter out common non-company websites
-                excluded_domains = ['linkedin.com', 'facebook.com', 'twitter.com', 'instagram.com', 
-                                   'crunchbase.com', 'bloomberg.com', 'wikipedia.org']
-                
+                excluded_domains = ['linkedin.com', 'facebook.com', 'twitter.com', 'instagram.com',
+                                   'crunchbase.com', 'bloomberg.com', 'wikipedia.org', 'youtube.com', 'google.com']
                 for result in results:
                     link = result.get('href', '')
-                    # Check if this is likely the company website (not social media, etc)
-                    if not any(domain in link for domain in excluded_domains):
-                        return link
-            
+                    if link and not any(domain in link for domain in excluded_domains) and link.startswith('http'):
+                        # Basic validation: looks like a plausible domain
+                        if '.' in link.split('/')[2]: # Check if domain part has a dot
+                             logger.info(f"Found potential website: {link}")
+                             return link
             return ""
         except Exception as e:
-            logger.error(f"Error finding company website: {str(e)}")
+            logger.error(f"Error finding company website for '{company_name}': {str(e)}")
             return ""
-    
+
     def _get_news_articles(self, company_name):
-        """Get news articles about the company using free News API"""
+        # --- This method remains the same ---
+        # Consider using a more reliable/official news API if possible
         try:
-            # Using GDELT's free news search via Webhose
-            encoded_query = quote_plus(company_name)
-            url = f"https://webhose.io/filterWebContent?token=demo&format=json&sort=relevancy&q={encoded_query}"
-            
-            headers = {
-                'User-Agent': random.choice(self.config.user_agents)
-            }
-            
-            response = requests.get(url, headers=headers)
+            # Using a placeholder - replace with a real news API if available
+            logger.warning("Using placeholder news search. Consider integrating a proper News API.")
+            # Example using DuckDuckGo for news search (less reliable than dedicated API)
+            encoded_query = quote_plus(f"{company_name} news")
+            url = f"https://html.duckduckgo.com/html/?q={encoded_query}"
+            headers = {'User-Agent': random.choice(self.config.user_agents)}
+            response = requests.get(url, headers=headers, timeout=10)
             articles = []
-            
             if response.status_code == 200:
-                data = response.json()
-                for post in data.get('posts', [])[:3]:  # Get top 3 articles
-                    articles.append({
-                        'title': post.get('title', ''),
-                        'link': post.get('url', '')
-                    })
-            
+                soup = BeautifulSoup(response.text, 'html.parser') # Need BS4 here
+                results = soup.find_all('div', class_='result')
+                for result in results[:3]: # Get top 3 results
+                    title_tag = result.find('a', class_='result__a')
+                    link_tag = result.find('a', class_='result__url')
+                    if title_tag and link_tag:
+                        title = title_tag.get_text(strip=True)
+                        link = link_tag.get('href', '')
+                        if title and link:
+                            articles.append({'title': title, 'link': link})
             return articles
         except Exception as e:
-            logger.error(f"Error fetching news: {str(e)}")
+            logger.error(f"Error fetching news for '{company_name}': {str(e)}")
             return []
-    
+
     def _get_company_description(self, company_name):
-        """Get company description from web search"""
+        # --- This method remains the same ---
         try:
-            # Use DuckDuckGo to get a summary
-            encoded_query = quote_plus(f"{company_name} about company")
+            encoded_query = quote_plus(f"what is {company_name}")
             url = f"https://html.duckduckgo.com/html/?q={encoded_query}"
-            
-            headers = {
-                'User-Agent': random.choice(self.config.user_agents)
-            }
-            
-            response = requests.get(url, headers=headers)
+            headers = {'User-Agent': random.choice(self.config.user_agents)}
+            response = requests.get(url, headers=headers, timeout=10)
             if response.status_code == 200:
-                soup = BeautifulSoup(response.text, 'html.parser')
-                snippets = soup.find_all('a', {'class': 'result__snippet'})
-                
+                soup = BeautifulSoup(response.text, 'html.parser') # Need BS4 here
+                # Look for abstract/snippet text
+                snippets = soup.find_all('a', class_='result__snippet')
                 if snippets:
-                    # Combine the first few snippets for a description
-                    return " ".join([s.text for s in snippets[:2]])
-            
+                    description = snippets[0].get_text(strip=True)
+                    logger.info(f"Found description snippet for {company_name}")
+                    return description
+                else:
+                    # Fallback: Look for definition if available
+                    definition = soup.find('div', class_='result--definition')
+                    if definition:
+                         desc_text = definition.get_text(strip=True)
+                         logger.info(f"Found definition for {company_name}")
+                         return desc_text
+
             return ""
         except Exception as e:
-            logger.error(f"Error getting company description: {str(e)}")
+            logger.error(f"Error getting company description for '{company_name}': {str(e)}")
             return ""
+
 
 # Database operations class
 class DatabaseOps:
+    # --- This class remains the same ---
     def __init__(self):
         self.db_path = 'linkedin_outreach.db'
-        # Ensure connection/cursor are handled per method or managed carefully
 
     def _get_connection(self):
         conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row # Return rows as dict-like objects
+        conn.row_factory = sqlite3.Row
         return conn
 
     def save_founder_data(self, founder_data, profile_url):
-        """Save founder data to the database"""
         conn = self._get_connection()
         cursor = conn.cursor()
         try:
+            # Ensure summary is handled correctly (might be long)
+            summary_text = founder_data.get('summary', '')
+            if isinstance(summary_text, list): # Handle if Gemini returns summary as list
+                summary_text = " ".join(summary_text)
+
             cursor.execute('''
             INSERT OR REPLACE INTO founders
             (linkedin_url, full_name, headline, summary, location, processed_date)
             VALUES (?, ?, ?, ?, ?, ?)
             ''', (
                 profile_url,
-                founder_data.get('full_name', ''),
+                founder_data.get('full_name', 'Unknown'), # Use default if missing
                 founder_data.get('headline', ''),
-                # Ensure summary is stored correctly, might be long
-                founder_data.get('summary', '')[:10000], # Truncate if necessary
+                summary_text[:10000], # Truncate if necessary
                 founder_data.get('location', ''),
                 datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             ))
             founder_id = cursor.lastrowid
             conn.commit()
-            logger.info(f"Saved founder data for ID: {founder_id}")
+            logger.info(f"Saved founder data for ID: {founder_id} (URL: {profile_url})")
             return founder_id
         except sqlite3.Error as e:
-            logger.error(f"Database error saving founder data: {str(e)}")
+            logger.error(f"Database error saving founder data for {profile_url}: {str(e)}")
             conn.rollback()
             return None
         finally:
             conn.close()
 
     def save_company_data(self, founder_id, company_data):
-        """Save company data to the database"""
         if not founder_id: return None
         conn = self._get_connection()
         cursor = conn.cursor()
         try:
-            # Check if company exists for this founder
+            # Ensure description is handled correctly
+            description_text = company_data.get('description', '')
+            if isinstance(description_text, list):
+                description_text = " ".join(description_text)
+
             cursor.execute("SELECT id FROM companies WHERE founder_id = ?", (founder_id,))
             existing = cursor.fetchone()
-            
+
             if existing:
-                # If exists, update
                 cursor.execute('''
-                UPDATE companies
-                SET name = ?, title = ?, description = ?, website = ?
-                WHERE founder_id = ?
+                UPDATE companies SET name = ?, title = ?, description = ?, website = ? WHERE founder_id = ?
                 ''', (
-                    company_data.get('name', ''),
-                    company_data.get('title', ''),
-                    company_data.get('description', '')[:5000],
-                    company_data.get('website', ''),
-                    founder_id
+                    company_data.get('name', ''), company_data.get('title', ''),
+                    description_text[:5000], company_data.get('website', ''), founder_id
                 ))
                 company_id = existing['id']
             else:
-                # If not, insert new
                 cursor.execute('''
-                INSERT INTO companies
-                (founder_id, name, title, description, website)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO companies (founder_id, name, title, description, website) VALUES (?, ?, ?, ?, ?)
                 ''', (
-                    founder_id,
-                    company_data.get('name', ''),
-                    company_data.get('title', ''),
-                    company_data.get('description', '')[:5000],
-                    company_data.get('website', '')
+                    founder_id, company_data.get('name', ''), company_data.get('title', ''),
+                    description_text[:5000], company_data.get('website', '')
                 ))
                 company_id = cursor.lastrowid
-                
+
             conn.commit()
             logger.info(f"Saved/Updated company data for founder ID: {founder_id}")
             return company_id
         except sqlite3.Error as e:
-            logger.error(f"Database error saving company data: {str(e)}")
+            logger.error(f"Database error saving company data for founder ID {founder_id}: {str(e)}")
             conn.rollback()
             return None
         finally:
             conn.close()
 
     def save_message(self, founder_id, message_text):
-        """Save generated message to the database"""
         if not founder_id: return None
         conn = self._get_connection()
         cursor = conn.cursor()
         try:
             cursor.execute('''
-            INSERT INTO messages
-            (founder_id, message_text, generated_date, was_sent)
-            VALUES (?, ?, ?, 0)
-            ''', (
-                founder_id,
-                message_text,
-                datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            ))
+            INSERT INTO messages (founder_id, message_text, generated_date, was_sent) VALUES (?, ?, ?, 0)
+            ''', (founder_id, message_text, datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
             message_id = cursor.lastrowid
             conn.commit()
             logger.info(f"Saved message ID: {message_id} for founder ID: {founder_id}")
             return message_id
         except sqlite3.Error as e:
-            logger.error(f"Database error saving message: {str(e)}")
+            logger.error(f"Database error saving message for founder ID {founder_id}: {str(e)}")
             conn.rollback()
             return None
         finally:
             conn.close()
 
     def get_all_messages(self):
-        """Get all generated messages with founder and company information"""
         conn = self._get_connection()
         cursor = conn.cursor()
         try:
-            # Ensure the JOIN logic correctly links messages, founders, and their primary company
             cursor.execute('''
-            SELECT
-                m.id as message_id, -- Alias message ID clearly
-                f.full_name,
-                f.linkedin_url,
-                COALESCE(c.name, 'N/A') as company_name, -- Handle cases where company might be missing
-                m.message_text,
-                m.generated_date,
-                m.was_sent
+            SELECT m.id as message_id, f.full_name, f.linkedin_url,
+                   COALESCE(c.name, 'N/A') as company_name,
+                   m.message_text, m.generated_date, m.was_sent
             FROM messages m
             JOIN founders f ON m.founder_id = f.id
-            LEFT JOIN companies c ON f.id = c.founder_id -- Use LEFT JOIN in case company data is absent
+            LEFT JOIN companies c ON f.id = c.founder_id
             ORDER BY m.generated_date DESC
             ''')
             results = [dict(row) for row in cursor.fetchall()]
@@ -741,7 +607,6 @@ class DatabaseOps:
             conn.close()
 
     def mark_message_as_sent(self, message_id):
-        """Mark a message as sent in the database"""
         conn = self._get_connection()
         cursor = conn.cursor()
         try:
@@ -755,65 +620,35 @@ class DatabaseOps:
                 logger.warning(f"Message ID {message_id} not found for marking as sent.")
                 return False
         except sqlite3.Error as e:
-            logger.error(f"Database error marking message as sent: {str(e)}")
+            logger.error(f"Database error marking message ID {message_id} as sent: {str(e)}")
             conn.rollback()
             return False
         finally:
             conn.close()
 
-    def get_messages_by_linkedin_url(self, linkedin_url):
-        """Get messages for a specific LinkedIn URL"""
-        conn = self._get_connection()
-        cursor = conn.cursor()
-        try:
-            cursor.execute('''
-            SELECT m.id, m.message_text, m.generated_date, m.was_sent
-            FROM messages m
-            JOIN founders f ON m.founder_id = f.id
-            WHERE f.linkedin_url = ?
-            ORDER BY m.generated_date DESC
-            ''', (linkedin_url,))
-            results = cursor.fetchall() # Returns list of Row objects
-            logger.info(f"Found {len(results)} messages for URL: {linkedin_url}")
-            # Convert Row objects to standard tuples or dicts if needed by caller
-            return [tuple(row) for row in results] # Example: return list of tuples
-        except sqlite3.Error as e:
-            logger.error(f"Database error getting messages by URL: {str(e)}")
-            return []
-        finally:
-            conn.close()
-
-    # Add export_messages_to_csv and delete_profile if they are not already in the class
     def export_messages_to_csv(self, filename='linkedin_messages.csv'):
-        """Export all generated messages to CSV file"""
-        messages = self.get_all_messages() # This now returns dicts with 'message_id'
-
+        messages = self.get_all_messages()
         if not messages:
             logger.warning("No messages to export")
             return False
-
         try:
-            # Adjust fieldnames based on the keys returned by get_all_messages
             fieldnames = ['message_id', 'full_name', 'company_name', 'linkedin_url',
                           'message_text', 'generated_date', 'was_sent']
+            # Import csv locally if not imported globally
+            import csv
             with open(filename, 'w', newline='', encoding='utf-8') as csvfile:
-                writer = csv.DictWriter(csvfile, fieldnames=fieldnames, extrasaction='ignore') # Ignore extra fields if any
+                writer = csv.DictWriter(csvfile, fieldnames=fieldnames, extrasaction='ignore')
                 writer.writeheader()
                 for message_dict in messages:
-                     # Ensure boolean 'was_sent' is handled correctly for CSV
                      message_dict['was_sent'] = bool(message_dict.get('was_sent', 0))
                      writer.writerow(message_dict)
-
             logger.info(f"Successfully exported {len(messages)} messages to {filename}")
             return True
-
         except Exception as e:
             logger.error(f"Error exporting messages to CSV: {str(e)}")
             return False
 
     def delete_profile(self, message_id):
-        """Delete a profile and its associated message(s) from the database"""
-        # This logic seems okay, ensure it handles potential errors gracefully
         conn = self._get_connection()
         cursor = conn.cursor()
         try:
@@ -824,19 +659,14 @@ class DatabaseOps:
                 return False
             founder_id = result['founder_id']
 
-            # Start transaction
             conn.execute("BEGIN TRANSACTION;")
-
-            # Delete the specific message
             cursor.execute("DELETE FROM messages WHERE id = ?", (message_id,))
             logger.info(f"Deleted message ID {message_id}.")
 
-            # Check if other messages exist for this founder
             cursor.execute("SELECT COUNT(*) FROM messages WHERE founder_id = ?", (founder_id,))
             count_result = cursor.fetchone()
             remaining_messages = count_result[0] if count_result else 0
 
-            # If no messages remain, delete founder and company data
             if remaining_messages == 0:
                 logger.info(f"No remaining messages for founder ID {founder_id}. Deleting founder and company data.")
                 cursor.execute("DELETE FROM companies WHERE founder_id = ?", (founder_id,))
@@ -847,7 +677,6 @@ class DatabaseOps:
             conn.commit()
             logger.info(f"Deletion process completed for message ID {message_id}.")
             return True
-
         except sqlite3.Error as e:
             logger.error(f"Database error deleting profile data for message ID {message_id}: {str(e)}")
             conn.rollback()
@@ -855,21 +684,16 @@ class DatabaseOps:
         finally:
             conn.close()
 
+
 # Main pipeline class
 class LinkedInOutreachPipeline:
     def __init__(self, scraper, researcher, generator, db_ops):
         """
         Initializes the pipeline with pre-configured components.
-
-        Args:
-            scraper: An instance of LinkedInScraper.
-            researcher: An instance of CompanyResearcher.
-            generator: An instance of MessageGenerator.
-            db_ops: An instance of DatabaseOps.
         """
-        # Store the passed instances instead of creating new ones
-        self.config = scraper.config # Assume scraper has config, or pass config separately
-        self.scraper = scraper # Store if needed by other methods
+        # --- This class remains largely the same, just ensure it uses the new scraper output ---
+        self.config = scraper.config # Get config from scraper
+        self.scraper = scraper
         self.researcher = researcher
         self.generator = generator
         self.db = db_ops
@@ -881,66 +705,73 @@ class LinkedInOutreachPipeline:
              logger.error("Scraper instance is not provided.")
              return None
         try:
-            # Step 1: Extract LinkedIn profile data using Playwright
+            # Step 1: Extract LinkedIn profile data using Screenshot + Vision
             founder_data = scraper_instance.extract_profile_data(profile_url)
             if not founder_data:
                 logger.error(f"Failed to extract profile data for {profile_url}")
                 return None # Return None to indicate failure
 
-            # Step 2: Extract company information (logic remains similar)
+            # Step 2: Identify primary company from extracted data
             company_name = None
             company_title = None
-            company_description = None
+            company_description = None # Description might come from Vision now
 
+            # Use the 'experiences' list extracted by the Vision API
             if 'experiences' in founder_data and founder_data['experiences']:
+                # Prioritize roles like founder, CEO etc.
                 founder_keywords = ['founder', 'co-founder', 'cofounder', 'ceo', 'chief executive', 'owner', 'president', 'managing director', 'director', 'entrepreneur', 'proprietor']
                 found_primary = False
                 for exp in founder_data['experiences']:
-                    title_lower = exp.get('title', '').lower()
-                    if any(keyword in title_lower for keyword in founder_keywords):
-                        company_name = exp.get('company')
-                        company_title = exp.get('title')
-                        company_description = exp.get('description', '')
-                        logger.info(f"Identified primary company (founder role): {company_title} at {company_name}")
-                        found_primary = True
-                        break
-                if not found_primary: # Fallback to most recent if no founder role found
-                    exp = founder_data['experiences'][0]
-                    company_name = exp.get('company')
-                    company_title = exp.get('title')
-                    company_description = exp.get('description', '')
-                    logger.info(f"Using most recent company: {company_title} at {company_name}")
+                    # Ensure exp is a dict and has 'title'
+                    if isinstance(exp, dict) and 'title' in exp:
+                        title_lower = exp.get('title', '').lower()
+                        if any(keyword in title_lower for keyword in founder_keywords):
+                            company_name = exp.get('company')
+                            company_title = exp.get('title')
+                            company_description = exp.get('description', '') # Use description from vision if available
+                            logger.info(f"Identified primary company (founder role): {company_title} at {company_name}")
+                            found_primary = True
+                            break
+                # Fallback to the first experience if no specific role found
+                if not found_primary and founder_data['experiences']:
+                     first_exp = founder_data['experiences'][0]
+                     if isinstance(first_exp, dict):
+                         company_name = first_exp.get('company')
+                         company_title = first_exp.get('title')
+                         company_description = first_exp.get('description', '')
+                         logger.info(f"Using first listed company: {company_title} at {company_name}")
 
-            # Fallbacks using headline/summary (logic seems okay, keep it)
+            # Fallback if no experiences found or company name still missing
             if not company_name:
-                 headline = founder_data.get('headline', '')
-                 # ... (rest of headline/summary parsing logic) ...
-                 if not company_name:
-                      logger.warning(f"Could not identify company name for {profile_url}. Using fallback.")
-                      company_name = "their company" # Fallback
+                 logger.warning(f"Could not identify company name from experiences for {profile_url}. Using fallback.")
+                 company_name = "their company" # Fallback
 
-            # Step 3: Enhance founder data
+            # Step 3: Enhance founder data (add primary company info)
             enhanced_founder_data = founder_data.copy()
             enhanced_founder_data['primary_company'] = {
                 'name': company_name,
                 'title': company_title,
-                'description': company_description
+                'description': company_description # Store description found
             }
 
-            # Step 4: Research company
-            company_data = self.researcher.search_company_info(company_name)
-            company_data['title'] = company_title # Add title to company data for saving
+            # Step 4: Research company (using the identified name)
+            # Researcher uses external APIs/scraping, independent of profile extraction method
+            company_research_data = self.researcher.search_company_info(company_name)
+            # Combine research data with title identified from profile
+            company_research_data['title'] = company_title
 
             # Step 5 & 6: Save data to database
             founder_id = self.db.save_founder_data(enhanced_founder_data, profile_url)
             if founder_id:
-                self.db.save_company_data(founder_id, company_data)
+                # Save the researched company data + title
+                self.db.save_company_data(founder_id, company_research_data)
             else:
                  logger.error(f"Failed to save founder data for {profile_url}, cannot proceed.")
                  return None # Indicate failure
 
-            # Step 7: Summarize data
-            company_summary = self.generator.summarize_company_data(enhanced_founder_data, company_data)
+            # Step 7: Summarize data (using data extracted via Vision + research)
+            # Pass enhanced_founder_data (from Vision) and company_research_data (from Researcher)
+            company_summary = self.generator.summarize_company_data(enhanced_founder_data, company_research_data)
 
             # Step 8: Generate message
             personalized_message = self.generator.generate_personalized_message(enhanced_founder_data, company_summary)
@@ -951,36 +782,43 @@ class LinkedInOutreachPipeline:
             # Step 10: Return results including message_id
             return {
                 'founder': enhanced_founder_data,
-                'company': company_data,
+                'company': company_research_data, # Return researched data
                 'summary': company_summary,
                 'message': personalized_message,
-                'message_id': message_id, # Include message_id in the return
-                'linkedin_url': profile_url, # Ensure URL is in the result
+                'message_id': message_id, # Include message_id
+                'linkedin_url': profile_url,
                 'full_name': enhanced_founder_data.get('full_name'),
-                'company_name': company_name,
+                'company_name': company_name, # The identified company name
             }
 
         except Exception as e:
-            logger.exception(f"Error in pipeline processing {profile_url}: {str(e)}") # Use logger.exception for stack trace
+            logger.exception(f"Error in pipeline processing {profile_url}: {str(e)}")
             return None # Indicate failure
 
-    # process_batch_from_csv needs to be adapted to use the persistent scraper instance
     def process_batch_from_csv(self, csv_file, scraper_instance):
         """Process multiple LinkedIn profiles from a CSV file using the provided scraper."""
+        # --- This method remains the same, it just calls the updated process_single_profile_with_scraper ---
         if not scraper_instance:
              logger.error("Scraper instance is required for batch processing.")
              return False
         try:
             profiles = []
-            with open(csv_file, 'r', encoding='utf-8') as file: # Specify encoding
+            # Import csv locally if not imported globally
+            import csv
+            # Need BeautifulSoup for CompanyResearcher, import it here if not global
+            from bs4 import BeautifulSoup
+            with open(csv_file, 'r', encoding='utf-8') as file:
                 reader = csv.DictReader(file)
                 for row in reader:
                     url = row.get('linkedin_url') or row.get('url')
-                    if url:
-                        profiles.append(url)
+                    if url and url.startswith("http"): # Basic URL validation
+                        profiles.append(url.strip())
+                    else:
+                        logger.warning(f"Skipping invalid or missing URL in CSV row: {row}")
+
 
             if not profiles:
-                logger.error("No LinkedIn profile URLs found in CSV file")
+                logger.error("No valid LinkedIn profile URLs found in CSV file")
                 return False
 
             results_count = 0
@@ -996,12 +834,11 @@ class LinkedInOutreachPipeline:
                 else:
                     logger.warning(f"Failed to process: {profile_url}")
                 # Add delay between requests
-                time.sleep(random.uniform(8, 15)) # Increased delay for Playwright
+                delay = random.uniform(15, 25) # Increase delay further for screenshot/API approach
+                logger.info(f"Waiting {delay:.1f}s before next profile...")
+                time.sleep(delay)
 
             logger.info(f"Batch processing finished. Successfully processed {results_count}/{total_profiles} profiles.")
-            # Optionally export results after batch processing
-            # self.db.export_messages_to_csv()
-
             return results_count > 0
 
         except FileNotFoundError:
@@ -1013,25 +850,55 @@ class LinkedInOutreachPipeline:
 
     def cleanup(self):
         """Clean up resources (delegated to scraper instance)."""
-        # The cleanup should be called on the specific scraper instance used by the app
-        logger.warning("Pipeline cleanup called, but resource management (scraper close) should happen at the application level.")
-        # If a scraper instance was stored here (not recommended for persistence):
-        # if hasattr(self, 'scraper') and self.scraper:
-        #     self.scraper.close()
+        logger.warning("Pipeline cleanup called, resource management should happen at the application level.")
 
 
 # Initialize database at module level
 init_database()
 
-# Function to get components (used by API endpoint)
-# This should NOT create new instances every time if persistence is desired.
-# The API endpoint will manage the single instances.
-# def get_pipeline_and_scraper():
-#     """
-#     DEPRECATED for persistent session. Instances should be created once in the API endpoint.
-#     """
-#     # pipeline = LinkedInOutreachPipeline() # Creates new config, researcher, generator, db ops
-#     # db_ops = pipeline.db # Use the one from the pipeline
-#     # scraper = LinkedInScraper(pipeline.config) # Creates new auth and playwright instance
-#     # return pipeline, db_ops, scraper
-#     raise DeprecationWarning("Use singleton instances managed by the API endpoint for persistence.")
+# Import BeautifulSoup globally as it's needed by CompanyResearcher
+from bs4 import BeautifulSoup
+
+# --- Main execution block (if running this file directly) ---
+if __name__ == '__main__':
+    logger.info("Running main.py directly (for testing purposes).")
+
+    # --- Example Usage (for testing the new scraper) ---
+    try:
+        config = Config()
+        scraper = LinkedInScraper(config)
+        researcher = CompanyResearcher(config)
+        generator = MessageGenerator(config) # Assumes MessageGenerator is correctly imported
+        db_ops = DatabaseOps()
+
+        pipeline = LinkedInOutreachPipeline(scraper, researcher, generator, db_ops)
+
+        # --- Test Single Profile ---
+        test_profile_url = "https://www.linkedin.com/in/williamhgates/" # Example public profile
+        logger.info(f"--- Testing single profile: {test_profile_url} ---")
+        # Need to pass the scraper instance
+        result = pipeline.process_single_profile_with_scraper(test_profile_url, scraper)
+
+        if result:
+            logger.info("--- Single Profile Result ---")
+            logger.info(f"Name: {result.get('full_name')}")
+            logger.info(f"Company: {result.get('company_name')}")
+            logger.info(f"Message ID: {result.get('message_id')}")
+            logger.info(f"Generated Message:\n{result.get('message')}")
+            # logger.info(f"Full Founder Data: {json.dumps(result.get('founder'), indent=2)}")
+            # logger.info(f"Full Company Data: {json.dumps(result.get('company'), indent=2)}")
+        else:
+            logger.error("--- Single Profile Processing Failed ---")
+
+        # --- Test Batch Processing (Optional) ---
+        # Create a dummy CSV file 'test_profiles.csv' with a 'linkedin_url' column
+        # logger.info("--- Testing batch processing ---")
+        # pipeline.process_batch_from_csv('test_profiles.csv', scraper)
+
+    except Exception as e:
+        logger.exception(f"Error during main execution test: {e}")
+    finally:
+        # Ensure cleanup happens even if run directly
+        if 'scraper' in locals() and scraper:
+            scraper.close()
+        logger.info("--- Main execution finished ---")

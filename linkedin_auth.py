@@ -40,7 +40,7 @@ class LinkedInAuth:
 
                 self._browser = self._playwright.chromium.launch_persistent_context(
                     self.USER_DATA_DIR,
-                    headless=False,
+                    headless=False,  # Always use visible browser for captchas
                     user_agent=random.choice(self.user_agents),
                     args=[
                         "--no-sandbox",
@@ -68,20 +68,78 @@ class LinkedInAuth:
             page.add_init_script("""
                 Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
                 Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
+                Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
+                
+                // Overwrite the permissions query
+                const originalQuery = window.navigator.permissions.query;
+                window.navigator.permissions.query = (parameters) => {
+                    if (parameters.name === 'notifications') {
+                        return Promise.resolve({state: Notification.permission});
+                    }
+                    return originalQuery(parameters);
+                };
             """)
         except Exception as e:
             logger.warning(f"Could not apply stealth: {e}")
 
-    def get_page(self, headless=True):
-        if self._page is None or self._page.is_closed():
-            self._launch_browser(headless=headless)
-            if not self._session_valid:
-                self.ensure_logged_in()
-        elif not self._session_valid:
-            self.ensure_logged_in()
+    def _setup_stealth_browser(self):
+        """Enhanced stealth mode for Playwright to avoid detection"""
+        # Create a more sophisticated stealth script
+        stealth_script = """
+        () => {
+            // Pass WebDriver test
+            Object.defineProperty(navigator, 'webdriver', {
+                get: () => false,
+            });
+            
+            // Pass Chrome test
+            window.chrome = {
+                runtime: {},
+                loadTimes: function() {},
+                csi: function() {},
+                app: {}
+            };
+            
+            // Pass Permissions test
+            const originalQuery = window.navigator.permissions.query;
+            window.navigator.permissions.query = (parameters) => (
+                parameters.name === 'notifications' ?
+                Promise.resolve({ state: Notification.permission }) :
+                originalQuery(parameters)
+            );
+            
+            // Pass plugins length test
+            Object.defineProperty(navigator, 'plugins', {
+                get: () => {
+                    const plugins = [1, 2, 3, 4, 5];
+                    plugins.refresh = () => {};
+                    plugins.namedItem = () => null;
+                    return plugins;
+                },
+            });
+            
+            // Pass languages test
+            Object.defineProperty(navigator, 'languages', {
+                get: () => ['en-US', 'en'],
+            });
+            
+            // Overwrite the `plugins` property to use a custom getter
+            Object.defineProperty(navigator, 'plugins', {
+                get: () => {
+                    // Create a plugins-like object
+                    const plugins = new Array(3);
+                    plugins.namedItem = () => null;
+                    plugins.refresh = () => {};
+                    return plugins;
+                },
+            });
+        }
+        """
+        
+        # Apply the stealth script
+        self.browser_context.add_init_script(stealth_script)
 
-        return self._page
-
+    
     def save_cookies(self):
         if not self._context:
             return
@@ -135,6 +193,96 @@ class LinkedInAuth:
             logger.error(f"Error loading cookies: {e}")
             return False
 
+    def _detect_captcha(self):
+        """Detect if a captcha or security challenge is present."""
+        if not self._page or self._page.is_closed():
+            return False
+            
+        try:
+            # Check for common captcha indicators
+            captcha_selectors = [
+                "iframe[src*='recaptcha']",  # reCAPTCHA iframe
+                "iframe[src*='captcha']",    # Generic captcha iframe
+                "div.captcha-container",     # LinkedIn specific captcha container
+                "div[data-id='captcha']",    # Another potential captcha indicator
+                "input#captcha-challenge",   # Text input for captcha challenge
+                "img.captcha",               # Captcha image
+                "div.challenge-dialog",      # LinkedIn security challenge dialog
+                "text=Security Verification",  # Security verification text
+                "text=Security Challenge",     # Security challenge text
+                "text=I'm not a robot",        # reCAPTCHA checkbox text
+                "text=We need to verify it's you", # LinkedIn security check
+                "div.artdeco-card__header:has-text('Let's do a quick security check')" # LinkedIn security check header
+            ]
+            
+            for selector in captcha_selectors:
+                try:
+                    element_visible = self._page.locator(selector).is_visible(timeout=1000)
+                    if element_visible:
+                        logger.warning(f"Detected security challenge/captcha: {selector}")
+                        return True
+                except Exception:
+                    pass
+                    
+            # Check for checkpoint challenge page in URL
+            if "checkpoint/challenge" in self._page.url:
+                logger.warning("Detected LinkedIn checkpoint challenge in URL")
+                return True
+                
+            return False
+            
+        except Exception as e:
+            logger.error(f"Error detecting captcha: {e}")
+            return False
+
+    def _handle_captcha(self, max_wait_time=300):
+        """Handle captcha by waiting for user intervention."""
+        try:
+            # Ensure browser is visible for user interaction
+            if self._browser and not self._page.is_closed():
+                # Alert the user with a message in the browser
+                self._page.evaluate("""() => {
+                    const div = document.createElement('div');
+                    div.id = 'captcha-alert';
+                    div.style = 'position:fixed;top:0;left:0;width:100%;background-color:red;color:white;padding:20px;z-index:9999;text-align:center;font-size:18px;';
+                    div.innerHTML = '<strong>SECURITY CHALLENGE DETECTED!</strong><br>Please solve the captcha manually, then the process will continue automatically.';
+                    document.body.prepend(div);
+                }""")
+                
+                logger.warning(f"Security challenge detected! Waiting up to {max_wait_time} seconds for user to solve it manually.")
+                print(f"\n⚠️ SECURITY CHALLENGE DETECTED in LinkedIn login! ⚠️")
+                print(f"Please look at the browser window and solve the captcha/security challenge.")
+                print(f"The process will continue automatically once completed.")
+                print(f"Waiting up to {max_wait_time} seconds for resolution...\n")
+                
+                # Wait for security challenge to disappear
+                start_time = time.time()
+                while time.time() - start_time < max_wait_time:
+                    if not self._detect_captcha():
+                        # Remove the alert message
+                        try:
+                            self._page.evaluate("""() => {
+                                const alert = document.getElementById('captcha-alert');
+                                if (alert) alert.remove();
+                            }""")
+                        except:
+                            pass
+                        
+                        logger.info("Security challenge appears to be resolved!")
+                        print("\n✅ Security challenge resolved! Continuing login process...\n")
+                        return True
+                    time.sleep(2)
+                
+                logger.error(f"Captcha not solved within {max_wait_time} seconds.")
+                print("\n❌ Security challenge not solved within the time limit. Login failed.\n")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error during captcha handling: {e}")
+            return False
+            
+        return False
+
     def verify_session(self):
         if not self._page or self._page.is_closed():
             return False
@@ -164,6 +312,16 @@ class LinkedInAuth:
                         self._page.click("button[type='submit']")
                         time.sleep(5)  # Give more time for login to complete
                         
+                        # Check for captcha after password submission
+                        if self._detect_captcha():
+                            if self._handle_captcha():
+                                # Re-verify after captcha handling
+                                if self._page.locator("#global-nav").is_visible(timeout=8000):
+                                    self._session_valid = True
+                                    self.save_cookies()
+                                    return True
+                            return False
+                        
                         # Check if login succeeded after password submission
                         if self._page.locator("#global-nav").is_visible(timeout=8000):
                             self._session_valid = True
@@ -172,6 +330,14 @@ class LinkedInAuth:
                 except PlaywrightError:
                     # If interaction fails, continue to credential login
                     pass
+            
+            # Check for captcha/security challenge
+            if self._detect_captcha():
+                # We need to handle the captcha
+                if self._handle_captcha():
+                    # Re-verify after captcha handling
+                    return self.verify_session()
+                return False
             
             # Check for login page redirect
             if "login" in self._page.url or "authwall" in self._page.url:
@@ -195,11 +361,28 @@ class LinkedInAuth:
             self._page.goto("https://www.linkedin.com/login", timeout=30000)
             time.sleep(2)
 
+            # Check for captcha before even attempting login
+            if self._detect_captcha():
+                if not self._handle_captcha():
+                    return False
+                # After captcha handled, reload the page
+                self._page.goto("https://www.linkedin.com/login", timeout=30000)
+                time.sleep(2)
+
+            # Fill in credentials
             self._page.fill("#username", self.email)
             time.sleep(1)
             self._page.fill("#password", self.password)
             time.sleep(1)
             self._page.click("button[type='submit']")
+            
+            # Wait briefly to see if any challenges appear immediately after submit
+            time.sleep(5)
+            
+            # Check for captcha or security challenge after initial submission
+            if self._detect_captcha():
+                if not self._handle_captcha():
+                    return False
             
             # Wait for navigation to complete
             try:
@@ -208,8 +391,17 @@ class LinkedInAuth:
                 self._session_valid = True
                 return True
             except PlaywrightTimeoutError:
-                if "checkpoint/challenge" in self._page.url:
-                    logger.error("Security challenge detected")
+                # Check one more time for a late-appearing security challenge
+                if "checkpoint/challenge" in self._page.url or self._detect_captcha():
+                    logger.warning("Security challenge detected after login attempt")
+                    if self._handle_captcha():
+                        # After challenge is handled, verify we're logged in
+                        if self._page.locator("#global-nav").is_visible(timeout=15000):
+                            self._session_valid = True
+                            self.save_cookies()
+                            return True
+                
+                logger.error("Login failed, couldn't reach feed after login attempt")
                 return False
                 
         except Exception as e:
@@ -230,7 +422,7 @@ class LinkedInAuth:
         # Make sure we have a page to work with
         if not self._page or self._page.is_closed():
             try:
-                self._launch_browser(headless=False)
+                self._launch_browser(headless=False)  # Always use visible browser for captchas
             except Exception as e:
                 logger.error(f"Failed to launch browser: {e}")
                 return False
