@@ -439,6 +439,11 @@
                                     <label for="linkedin-url" class="block text-sm font-medium text-gray-700 mb-2">LinkedIn Profile URL</label>
                                     <input type="text" id="linkedin-url" class="linkd-input w-full" placeholder="https://www.linkedin.com/in/username/">
                                 </div>
+                                <div class="mb-4">
+                                    <label for="tech-stack" class="block text-sm font-medium text-gray-700 mb-1">Your Tech Stack/Skills Summary:</label>
+                                    <textarea id="tech-stack" name="tech-stack" rows="3" class="linkd-input" placeholder="e.g., Python, Flask, React, AWS, Docker, Machine Learning..."></textarea>
+                                    <p class="text-xs text-gray-500 mt-1">Provide a brief summary of your skills for the job inquiry message.</p>
+                                </div>
                                 <div class="flex justify-center">
                                     <button id="process-profile" class="linkd-btn-primary px-8 py-3 text-base font-medium">
                                         Generate Message <i class="fas fa-arrow-right ml-2"></i>
@@ -447,59 +452,44 @@
                             </div>
 
                             <!-- Results Section (Initially Hidden) -->
-                            <div id="profile-results" class="mt-10 hidden">
-                                <div class="linkd-card overflow-hidden">
-                                    <div class="px-6 py-5 flex justify-between items-center border-b border-gray-100">
+                            <div id="profile-results" class="mt-6 bg-white p-6 rounded-lg shadow-md hidden">
+                                <h3 class="text-lg font-semibold mb-4 text-gray-800 flex items-center">
+                                    <i class="fas fa-user-check mr-2 text-indigo-600"></i> Generated Messages for <span id="result-name" class="ml-1 font-bold"></span>
+                                </h3>
+                                <!-- Tabs or Sections for Messages -->
+                                <div class="mb-4 border-b border-gray-200">
+                                    <nav class="-mb-px flex space-x-6" aria-label="Tabs">
+                                        <button id="tab-connection" class="tab-button active-tab">Connection Request</button>
+                                        <button id="tab-job-inquiry" class="tab-button">Job Inquiry</button>
+                                    </nav>
+                                </div>
+
+                                <!-- Connection Request Content -->
+                                <div id="content-connection" class="tab-content">
+                                    <div class="flex justify-between items-center mb-2">
+                                        <span class="text-sm font-medium text-gray-600">Connection Request Message (<span id="char-count-connection">0</span>/300 chars):</span>
                                         <div>
-                                            <h3 class="text-xl font-semibold text-gradient scramble-text">Profile Results</h3>
-                                            <p class="text-sm text-gray-500 mt-1">Details and personalized message</p>
-                                        </div>
-                                        <div class="flex space-x-3">
-                                            <button id="result-copy" class="linkd-btn-secondary px-3 py-1.5 text-sm flex items-center">
-                                                <i class="fas fa-copy mr-1.5"></i> Copy
+                                            <button id="copy-connection" class="linkd-btn-secondary text-xs" data-message-id="">
+                                                <i class="far fa-copy mr-1.5"></i> Copy
                                             </button>
-                                            <button id="result-mark-sent" class="linkd-btn-primary px-3 py-1.5 text-sm flex items-center">
+                                            <!-- Keep Mark Sent associated with connection message ID -->
+                                            <button id="mark-sent-connection" class="linkd-btn-primary text-xs ml-2" data-id="">
                                                 <i class="fas fa-check mr-1.5"></i> Mark Sent
                                             </button>
                                         </div>
                                     </div>
-                                    <div>
-                                        <dl>
-                                            <div class="px-6 py-4 grid grid-cols-3 gap-4 hover:bg-gray-50">
-                                                <dt class="text-sm font-medium text-gray-500">Name</dt>
-                                                <dd id="result-name" class="text-sm col-span-2">-</dd>
-                                            </div>
-                                            <div class="px-6 py-4 grid grid-cols-3 gap-4 bg-gray-50 hover:bg-gray-100">
-                                                <dt class="text-sm font-medium text-gray-500">Headline</dt>
-                                                <dd id="result-headline" class="text-sm col-span-2">-</dd>
-                                            </div>
-                                            <div class="px-6 py-4 grid grid-cols-3 gap-4 hover:bg-gray-50">
-                                                <dt class="text-sm font-medium text-gray-500">Location</dt>
-                                                <dd id="result-location" class="text-sm col-span-2">-</dd>
-                                            </div>
-                                            <div class="px-6 py-4 grid grid-cols-3 gap-4 bg-gray-50 hover:bg-gray-100">
-                                                <dt class="text-sm font-medium text-gray-500">Company</dt>
-                                                <dd id="result-company" class="text-sm col-span-2">-</dd>
-                                            </div>
-                                            <div class="px-6 py-4 grid grid-cols-3 gap-4 hover:bg-gray-50">
-                                                <dt class="text-sm font-medium text-gray-500">Summary</dt>
-                                                <dd id="result-summary" class="text-sm col-span-2 prose-sm">-</dd>
-                                            </div>
-                                            <div class="px-6 py-5">
-                                                <dt class="text-sm font-medium text-gray-500 mb-3">Personalized Message</dt>
-                                                <dd>
-                                                    <div class="border border-gray-200 rounded-xl p-6 bg-gray-50">
-                                                        <div id="result-message" class="text-sm prose-sm"></div>
-                                                    </div>
-                                                    <div class="mt-3 flex items-center justify-end">
-                                                        <div class="text-xs text-gray-500">
-                                                            <span id="character-count">0</span>/500 characters
-                                                        </div>
-                                                    </div>
-                                                </dd>
-                                            </div>
-                                        </dl>
+                                    <div id="result-message-connection" class="prose prose-sm max-w-none p-3 bg-gray-50 rounded border border-gray-200 whitespace-pre-wrap"></div>
+                                </div>
+
+                                <!-- Job Inquiry Content -->
+                                <div id="content-job-inquiry" class="tab-content hidden">
+                                    <div class="flex justify-between items-center mb-2">
+                                        <span class="text-sm font-medium text-gray-600">Job Inquiry Message (<span id="char-count-job">0</span>/1000 chars):</span>
+                                        <button id="copy-job-inquiry" class="linkd-btn-secondary text-xs" data-message-id="">
+                                            <i class="far fa-copy mr-1.5"></i> Copy
+                                        </button>
                                     </div>
+                                    <div id="result-message-job-inquiry" class="prose prose-sm max-w-none p-3 bg-gray-50 rounded border border-gray-200 whitespace-pre-wrap"></div>
                                 </div>
                             </div>
                         </div>

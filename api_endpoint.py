@@ -206,7 +206,6 @@ def serve_assets(path):
 @app.route('/api/process_profile', methods=['POST'])
 def process_profile():
     """Process a single LinkedIn profile URL using the persistent scraper."""
-    # 1. Ensure services are initialized and session is checked
     init_status = initialize_services()
     # Allow processing even if login failed initially, but log it.
     # if init_status["status"] == "error":
@@ -224,24 +223,42 @@ def process_profile():
     try:
         data = request.json
         linkedin_url = data.get('url')
+        user_tech_stack = data.get('tech_stack', '') # Get tech stack from request
 
         if not linkedin_url:
             return jsonify({"error": "LinkedIn URL is required"}), 400
 
-        # Use the SINGLETON instances
-        # Pass the persistent scraper_instance to the pipeline method
-        result = pipeline_instance.process_single_profile_with_scraper(linkedin_url, scraper_instance)
+        # Pass scraper_instance and user_tech_stack
+        result = pipeline_instance.process_single_profile_with_scraper(
+            linkedin_url,
+            scraper_instance,
+            user_tech_stack # Pass it here
+        )
 
         if result is None:
-            # Check logs for the specific error in process_single_profile_with_scraper
             logger.error(f"process_single_profile_with_scraper returned None for URL: {linkedin_url}")
             return jsonify({"error": "Failed to process profile. Check server logs for details."}), 500
 
-        # Result should already contain 'message_id' if successful
-        # message_id = result.get('message_id') # Already included in result dict
+        # Result now contains both messages and their IDs
+        # Rename keys slightly for clarity in JSON response
+        response_data = {
+            "full_name": result.get("full_name"),
+            "company_name": result.get("company_name"),
+            "linkedin_url": result.get("linkedin_url"),
+            "connection_message": {
+                "text": result.get("connection_message"),
+                "id": result.get("connection_message_id")
+            },
+            "job_inquiry_message": {
+                "text": result.get("job_inquiry_message"),
+                "id": result.get("job_inquiry_message_id")
+            }
+            # Optionally include founder/company details if needed by frontend
+            # "founder_details": result.get("founder"),
+            # "company_details": result.get("company"),
+        }
 
-        # Return the full result dictionary
-        return jsonify(result)
+        return jsonify(response_data) # Return the structured response
 
     except Exception as e:
         error_msg = f"Error processing profile {linkedin_url}: {str(e)}"
@@ -268,6 +285,7 @@ def process_batch():
     try:
         data = request.json
         urls = data.get('urls', [])
+        user_tech_stack = data.get('tech_stack', '') # Get tech stack for batch
 
         if not urls:
             return jsonify({"error": "At least one LinkedIn URL is required"}), 400
@@ -285,19 +303,36 @@ def process_batch():
             print(f"Processing batch item {i+1}/{total}: {url}")
             logger.info(f"Processing batch item {i+1}/{total}: {url}")
             try:
-                # Use the SINGLETON instances
-                result = pipeline_instance.process_single_profile_with_scraper(url, scraper_instance)
+                # Pass scraper_instance and user_tech_stack
+                result = pipeline_instance.process_single_profile_with_scraper(
+                    url,
+                    scraper_instance,
+                    user_tech_stack # Pass it here
+                )
                 if result:
-                    results.append(result)
+                    # Structure batch result similar to single profile response
+                    response_data = {
+                        "full_name": result.get("full_name"),
+                        "company_name": result.get("company_name"),
+                        "linkedin_url": result.get("linkedin_url"),
+                        "connection_message": {
+                            "text": result.get("connection_message"),
+                            "id": result.get("connection_message_id")
+                        },
+                        "job_inquiry_message": {
+                            "text": result.get("job_inquiry_message"),
+                            "id": result.get("job_inquiry_message_id")
+                        }
+                    }
+                    results.append(response_data)
                     processed_count += 1
                     print(f"Successfully processed batch item: {url}")
                     logger.info(f"Successfully processed batch item: {url}")
                 else:
                     print(f"Failed to process batch item: {url}")
                     logger.warning(f"Failed to process batch item: {url}")
-                    # Optionally add error info to results: results.append({"url": url, "error": "Processing failed"})
+                    results.append({"url": url, "error": "Processing failed"}) # Add error info
 
-                # Add a significant delay between batch items
                 delay = random.uniform(10, 20)
                 print(f"Waiting {delay:.1f}s before next profile...")
                 time.sleep(delay)

@@ -27,7 +27,7 @@ class MessageGenerator:
             self.generation_model = genai.GenerativeModel('gemini-1.5-flash') # Updated model name
             logger.info("MessageGenerator initialized with Gemini model.")
         except Exception as e:
-             logger.error(f"Failed to configuwritere Gemini or initialize model: {e}")
+             logger.error(f"Failed to configure Gemini or initialize model: {e}")
              raise RuntimeError(f"Failed to initialize Gemini: {e}") from e
 
     def summarize_company_data(self, founder_data, company_data):
@@ -66,9 +66,7 @@ class MessageGenerator:
             # Prepare news summaries
             news_summary = ""
             if company_data.get('news'):
-                news_summary = "Recent news:\n"
-                for article in company_data['news']:
-                    news_summary += f"- {article['title']}\n"
+                news_summary = "Recent news:\n" + "\n".join([f"- {article['title']}" for article in company_data['news']])
 
             # New ultra-detailed prompt for Gemini Flash
             prompt = f"""
@@ -119,96 +117,160 @@ class MessageGenerator:
             # Provide a more informative fallback
             return f"Summary Error: Could not generate summary for {founder_data.get('full_name', 'founder')} at {company_data.get('name', 'company')}."
 
-    def generate_personalized_message(self, founder_data, company_summary):
-        """Generate a personalized outreach message using Gemini"""
+    def _shorten_message(self, message, target_length, context_name, context_company):
+        """Internal helper to shorten a message using Gemini."""
+        if len(message) <= target_length:
+            return message
+
+        logger.warning(f"Generated message exceeded {target_length} characters ({len(message)}). Attempting to shorten.")
+        shorten_prompt = f"""
+        Shorten the following message to be under {target_length} characters, while retaining the core personalization about {context_name} and {context_company}. Keep it professional and concise.
+
+        Original Message:
+        {message}
+        """
         try:
-            founder_name = founder_data.get('full_name', '').split()[0] if founder_data.get('full_name') else 'there' # Get first name or fallback
+            response = self.generation_model.generate_content(shorten_prompt)
+            if response and hasattr(response, 'text'):
+                 shortened = response.text.strip()
+                 logger.info(f"Shortened message length: {len(shortened)}")
+                 # Final check and truncate if shortening failed to meet target
+                 if len(shortened) > target_length:
+                     logger.warning(f"Shortening attempt still exceeded limit ({len(shortened)}). Truncating.")
+                     return shortened[:target_length-3] + "..."
+                 return shortened
+            else:
+                 logger.error("Failed to shorten the message via API.")
+                 # Fallback: Truncate harshly if shortening fails
+                 return message[:target_length-3] + "..."
+        except Exception as e:
+            logger.error(f"Error during message shortening API call: {e}")
+            return message[:target_length-3] + "..." # Fallback
+
+    def generate_connection_request(self, founder_data, company_summary):
+        """Generate a personalized LinkedIn connection request message (under 300 chars)."""
+        try:
+            founder_name = founder_data.get('full_name', '').split()[0] if founder_data.get('full_name') else 'there'
             company_name = founder_data.get('primary_company', {}).get('name', 'their company')
 
-
+            # Adjusted prompt for connection request (shorter limit)
             prompt = f"""
-            **Objective:** Generate a **highly personalized and insightful** LinkedIn connection request message (strictly under 600 characters) to {founder_name}, the leader of {company_name}. The message must demonstrate genuine interest based on specific details from the provided summary.
+            **Objective:** Generate a **highly personalized and concise** LinkedIn connection request message (strictly under 300 characters) to {founder_name}, the leader of {company_name}. The message must demonstrate genuine interest based on a *specific* detail from the provided summary.
 
-            **Sender Persona (Implicit):** Assume the sender has a background or strong interest relevant to the founder's industry or technology (e.g., ML/AI, business strategy, specific market sector). Frame the connection point from this perspective.
+            **Sender Persona (Implicit):** Assume the sender has a background or strong interest relevant to the founder's industry or technology.
 
-            **Core Task:** Synthesize the provided summary to extract **unique, non-obvious points of resonance** or **specific achievements/challenges** that genuinely capture the sender's interest. Avoid surface-level observations.
+            **Core Task:** Extract **one unique, non-obvious point of resonance** or **specific achievement** from the summary.
 
             **Recipient:** {founder_name}
             **Recipient's Company:** {company_name}
 
-            **Detailed Founder & Company Summary (Source for Deep Personalization):**
+            **Detailed Founder & Company Summary (Source for Personalization):**
             --- START SUMMARY ---
             {company_summary}
             --- END SUMMARY ---
 
-            **Instructions for Message Generation:**
+            **Instructions:**
+            1.  **Identify Unique Hook:** Pinpoint 1 specific and compelling detail.
+            2.  **Draft Message:**
+                *   Start warmly: "Hi {founder_name},"
+                *   Reference the specific hook concisely (e.g., "Saw the summary of your work at {company_name} - particularly interested in [Specific Detail]..." or "Your approach to [Specific Topic] mentioned in the summary caught my eye...")
+                *   Briefly state relevance/interest implicitly or explicitly.
+                *   End with a simple call to connect (e.g., "Would love to connect.", "Hope to connect.").
+            3.  **Constraint Checklist:**
+                *   Strictly under 300 characters.
+                *   Mentions {founder_name}.
+                *   References a *specific* detail from the summary.
+                *   Professional and genuine tone.
 
-            1.  **Deep Analysis:** Scrutinize the entire summary. Look beyond headlines for specific projects, unique approaches, stated values, career pivots, recent milestones, or challenges mentioned.
-            2.  **Identify Unique Hook:** Pinpoint 1 (maximum 2) **specific and compelling detail** that stands out. Ask yourself: "What detail is least likely to be mentioned by others?" or "What connects most strongly to the sender's assumed background/interest?"
-            3.  **Establish Relevance (Crucial):** Briefly explain *why* this specific detail caught your attention, connecting it implicitly or explicitly to the sender's persona/interest (e.g., "As someone focused on [Sender's Area], I was particularly interested in your approach to [Specific Detail]...").
-            4.  **Draft Message:**
-                *   Start warmly and professionally: "Hi {founder_name},"
-                *   Immediately reference the **specific unique hook** identified. (e.g., "I read the summary about your work at {company_name} and was fascinated by the mention of [Specific Detail from Summary]..." or "Your perspective on [Specific Topic from Summary] really resonated...")
-                *   Briefly state the **relevance** or the connection to the sender's interest.
-                *   Express a clear, concise, and genuine call to action (e.g., "Would love to connect and follow your journey," "Interested to learn more about your work in this area," "Hope to connect.").
-                *   Maintain a respectful, curious, and concise tone throughout.
-            5.  **Constraint Checklist:**
-                *   Strictly under 600 characters.
-                *   Mentions {founder_name} by name.
-                *   References a *specific* detail from the `{company_summary}`.
-                *   Implies or states sender relevance/interest.
-                *   Professional, genuine, and curious tone.
+            **AVOID:** Generic praise, vague interest, exceeding character limit.
 
-            **What to AVOID:**
-            *   Generic praise ("Great work!", "Impressed by your company").
-            *   Simply stating the company name or founder's title without a specific hook.
-            *   Vague interest ("Interested in your industry").
-            *   Anything that sounds like a template.
-            *   Exceeding the character limit.
+            **Example Structure:**
+            "Hi {founder_name}, read the summary about {company_name}. As someone in [Field], your team's work on [Specific Detail] is fascinating. Would love to connect."
 
-            **Enhanced Example Structure:**
-            "Hi {founder_name}, I came across the summary detailing your journey with {company_name}. As someone working in [Sender's Field, e.g., scalable AI systems], I was particularly struck by your team's approach to [Specific Unique Detail from Summary, e.g., implementing federated learning for X]. Would be great to connect and follow how that develops."
-
-            **Generate the hyper-personalized connection request message now, adhering strictly to all instructions and constraints.**
+            **Generate the connection request message now.**
             """
 
             response = self.generation_model.generate_content(prompt)
-            # Add basic error handling for response
             if not response or not hasattr(response, 'text'):
-                 logger.error("Invalid response received from Gemini API during message generation.")
+                 logger.error("Invalid response received from Gemini API during connection request generation.")
                  raise ValueError("Invalid response from Gemini API.")
-            message = response.text.strip() # Strip whitespace
+            message = response.text.strip()
 
-            # Check character limit for LinkedIn first messages (600)
-            if len(message) > 600:
-                logger.warning(f"Generated message exceeded 600 characters ({len(message)}). Attempting to shorten.")
-                # Use a simpler prompt for shortening
-                shorten_prompt = f"""
-                Shorten the following message to be under 600 characters, while retaining the core personalization about {founder_name} and {company_name}. Keep it professional and concise.
-
-                Original Message:
-                {message}
-                """
-                response = self.generation_model.generate_content(shorten_prompt)
-                if response and hasattr(response, 'text'):
-                     message = response.text.strip()
-                     logger.info(f"Shortened message length: {len(message)}")
-                else:
-                     logger.error("Failed to shorten the message.")
-                     # Fallback: Truncate harshly if shortening fails
-                     message = message[:595] + "..."
-
-
-            # Final length check
-            if len(message) > 600:
-                 logger.warning("Message still too long after shortening attempt. Truncating.")
-                 message = message[:595] + "..." # Truncate if still too long
+            # Shorten if needed (target 300 chars for connection requests)
+            message = self._shorten_message(message, 300, founder_name, company_name)
 
             return message
 
         except Exception as e:
-            logger.error(f"Error generating personalized message: {str(e)}", exc_info=True)
-            # Provide a more informative fallback message
+            logger.error(f"Error generating connection request message: {str(e)}", exc_info=True)
+            fallback_name = founder_data.get('full_name', 'there')
+            return f"Hi {fallback_name}, saw your profile and work. Would be great to connect." # Shorter fallback
+
+    def generate_job_inquiry(self, founder_data, company_summary, user_tech_stack):
+        """Generate a personalized message inquiring about roles (longer, post-connection)."""
+        try:
+            founder_name = founder_data.get('full_name', '').split()[0] if founder_data.get('full_name') else 'there'
+            company_name = founder_data.get('primary_company', {}).get('name', 'their company')
+
+            if not user_tech_stack:
+                logger.warning("User tech stack not provided for job inquiry message. Using generic placeholder.")
+                user_tech_stack = "[Your relevant skills and experience area]" # Placeholder
+
+            # New prompt for job inquiry
+            prompt = f"""
+            **Objective:** Generate a personalized and professional LinkedIn message (around 800-1200 characters) to {founder_name} of {company_name}. Assume you are already connected. The goal is to express genuine interest in the company based on their work and inquire about potential opportunities relevant to the user's tech stack.
+
+            **Recipient:** {founder_name}
+            **Recipient's Company:** {company_name}
+
+            **User's Background/Tech Stack:**
+            {user_tech_stack}
+
+            **Detailed Founder & Company Summary (Source for Personalization):**
+            --- START SUMMARY ---
+            {company_summary}
+            --- END SUMMARY ---
+
+            **Instructions:**
+            1.  **Reference Connection (Optional but good):** Briefly mention connecting previously or following their work. (e.g., "Hi {founder_name}, great connecting with you." or "Hi {founder_name}, I've been following {company_name}'s progress since we connected...")
+            2.  **Reiterate Interest:** Reference a *specific* aspect of the company's work, mission, or recent developments (from the summary) that genuinely interests you and aligns with your background. Explain *why* it's interesting to you. (e.g., "I was particularly impressed by the summary detailing [Specific Achievement/Project]..." or "The focus on [Company's Mission Aspect] resonates strongly with my background in...")
+            3.  **Introduce Yourself & Skills:** Briefly introduce your key skills and experience area, directly referencing the `user_tech_stack` provided. Highlight how your skills could potentially align with the company's goals or technology. (e.g., "With my background in {user_tech_stack}, I'm very interested in how companies like yours are tackling [Problem Area]...")
+            4.  **Express Interest in Opportunities:** Clearly state your interest in exploring potential roles at {company_name} that align with your skills. Avoid demanding a job.
+            5.  **Call to Action (Polite Inquiry):** Ask politely about the best way to learn about relevant openings or who the appropriate contact might be. (e.g., "Are there opportunities available for someone with my skillset?", "Could you point me to the best person or resource for exploring potential roles?", "I'd appreciate any guidance on how best to explore opportunities at {company_name}.")
+            6.  **Tone:** Professional, respectful, enthusiastic, and personalized. Not overly demanding or generic.
+            7.  **Length:** Aim for roughly 800-1200 characters. More detailed than a connection request, but still respectful of their time.
+
+            **AVOID:**
+            *   Sounding like a mass email.
+            *   Generic statements ("I'm looking for a job").
+            *   Demanding an interview or specific role.
+            *   Poor grammar or unprofessional language.
+
+            **Example Structure:**
+            "Hi {founder_name}, great connecting. I've been following {company_name}'s work, and the summary mentioning [Specific Detail from Summary] particularly caught my eye, especially given its relevance to [Area].
+
+            My background is in {user_tech_stack}, and I'm passionate about [Related Field/Goal]. I'm exploring opportunities where I can apply these skills to innovative projects like those at {company_name}.
+
+            Would you be open to pointing me toward the best resource or contact for learning about potential roles aligned with my experience? Any guidance would be greatly appreciated.
+
+            Thanks,"
+
+            **Generate the personalized job inquiry message now.**
+            """
+
+            response = self.generation_model.generate_content(prompt)
+            if not response or not hasattr(response, 'text'):
+                 logger.error("Invalid response received from Gemini API during job inquiry generation.")
+                 raise ValueError("Invalid response from Gemini API.")
+            message = response.text.strip()
+
+            # Shorten if needed (target ~1000 chars, less critical than connection request)
+            message = self._shorten_message(message, 2500, founder_name, company_name)
+
+            return message
+
+        except Exception as e:
+            logger.error(f"Error generating job inquiry message: {str(e)}", exc_info=True)
             fallback_name = founder_data.get('full_name', 'there')
             fallback_company = company_name or 'your company'
-            return f"Hi {fallback_name}, I came across your profile and work at {fallback_company}. I'm interested in learning more about your industry. Would be great to connect."
+            return f"Hi {fallback_name}, following up on our connection. I'm impressed with {fallback_company}'s work. With my background in {user_tech_stack}, I'm interested in exploring potential opportunities. Could you advise on the best way to learn more? Thanks." # Fallback

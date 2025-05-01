@@ -34,45 +34,70 @@ logger = logging.getLogger(__name__)
 def init_database():
     conn = sqlite3.connect('linkedin_outreach.db')
     cursor = conn.cursor()
+    try:
+        conn.execute("BEGIN TRANSACTION;") # Start transaction for atomic changes
 
-    # Create tables if they don't exist
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS founders (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        linkedin_url TEXT UNIQUE,
-        full_name TEXT,
-        headline TEXT,
-        summary TEXT,
-        location TEXT,
-        processed_date TEXT
-    )
-    ''')
+        # Create founders table if not exists
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS founders (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            linkedin_url TEXT UNIQUE,
+            full_name TEXT,
+            headline TEXT,
+            summary TEXT,
+            location TEXT,
+            processed_date TEXT
+        )
+        ''')
 
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS companies (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        founder_id INTEGER,
-        name TEXT,
-        title TEXT,
-        description TEXT,
-        website TEXT,
-        FOREIGN KEY (founder_id) REFERENCES founders (id)
-    )
-    ''')
+        # Create companies table if not exists
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS companies (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            founder_id INTEGER,
+            name TEXT,
+            title TEXT,
+            description TEXT,
+            website TEXT,
+            FOREIGN KEY (founder_id) REFERENCES founders (id)
+        )
+        ''')
 
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS messages (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        founder_id INTEGER,
-        message_text TEXT,
-        generated_date TEXT,
-        was_sent INTEGER DEFAULT 0,
-        FOREIGN KEY (founder_id) REFERENCES founders (id)
-    )
-    ''')
+        # Create messages table if not exists (initially without message_type if altering)
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            founder_id INTEGER,
+            message_text TEXT,
+            generated_date TEXT,
+            was_sent INTEGER DEFAULT 0,
+            FOREIGN KEY (founder_id) REFERENCES founders (id)
+        )
+        ''')
 
-    conn.commit()
-    conn.close()
+        # Check if 'message_type' column exists in 'messages' table
+        cursor.execute("PRAGMA table_info(messages);")
+        columns = [info[1] for info in cursor.fetchall()] # Get column names
+
+        if 'message_type' not in columns:
+            logger.info("Adding 'message_type' column to existing 'messages' table.")
+            # Add the column if it doesn't exist
+            cursor.execute("ALTER TABLE messages ADD COLUMN message_type TEXT;")
+            logger.info("'message_type' column added successfully.")
+        else:
+            logger.debug("'message_type' column already exists in 'messages' table.")
+
+        # Now it's safe to create the index
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_message_type ON messages (founder_id, message_type);")
+
+        conn.commit() # Commit the transaction
+        logger.info("Database initialization/update complete.")
+
+    except sqlite3.Error as e:
+        logger.error(f"Database initialization/update failed: {e}")
+        conn.rollback() # Rollback changes on error
+    finally:
+        conn.close()
 
 # Config setup
 class Config:
@@ -565,20 +590,20 @@ class DatabaseOps:
         finally:
             conn.close()
 
-    def save_message(self, founder_id, message_text):
+    def save_message(self, founder_id, message_text, message_type): # Added message_type
         if not founder_id: return None
         conn = self._get_connection()
         cursor = conn.cursor()
         try:
             cursor.execute('''
-            INSERT INTO messages (founder_id, message_text, generated_date, was_sent) VALUES (?, ?, ?, 0)
-            ''', (founder_id, message_text, datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
+            INSERT INTO messages (founder_id, message_text, message_type, generated_date, was_sent) VALUES (?, ?, ?, ?, 0)
+            ''', (founder_id, message_text, message_type, datetime.now().strftime('%Y-%m-%d %H:%M:%S'))) # Added message_type
             message_id = cursor.lastrowid
             conn.commit()
-            logger.info(f"Saved message ID: {message_id} for founder ID: {founder_id}")
+            logger.info(f"Saved {message_type} message ID: {message_id} for founder ID: {founder_id}")
             return message_id
         except sqlite3.Error as e:
-            logger.error(f"Database error saving message for founder ID {founder_id}: {str(e)}")
+            logger.error(f"Database error saving {message_type} message for founder ID {founder_id}: {str(e)}")
             conn.rollback()
             return None
         finally:
@@ -591,7 +616,7 @@ class DatabaseOps:
             cursor.execute('''
             SELECT m.id as message_id, f.full_name, f.linkedin_url,
                    COALESCE(c.name, 'N/A') as company_name,
-                   m.message_text, m.generated_date, m.was_sent
+                   m.message_type, m.message_text, m.generated_date, m.was_sent -- Added message_type
             FROM messages m
             JOIN founders f ON m.founder_id = f.id
             LEFT JOIN companies c ON f.id = c.founder_id
@@ -599,6 +624,10 @@ class DatabaseOps:
             ''')
             results = [dict(row) for row in cursor.fetchall()]
             logger.info(f"Retrieved {len(results)} messages from database.")
+            # Add sent boolean conversion
+            for msg in results:
+                 msg['sent'] = bool(msg.get('was_sent', 0))
+                 msg.setdefault('message_id', None) # Ensure message_id is present
             return results
         except sqlite3.Error as e:
             logger.error(f"Database error getting all messages: {str(e)}")
@@ -606,10 +635,13 @@ class DatabaseOps:
         finally:
             conn.close()
 
+    # Mark sent might need adjustment depending on which message type it applies to.
+    # Assuming it applies to the connection request for now.
     def mark_message_as_sent(self, message_id):
         conn = self._get_connection()
         cursor = conn.cursor()
         try:
+            # Optionally, you could verify it's a 'connection' type message first
             cursor.execute("UPDATE messages SET was_sent = 1 WHERE id = ?", (message_id,))
             updated_rows = cursor.rowcount
             conn.commit()
@@ -626,20 +658,22 @@ class DatabaseOps:
         finally:
             conn.close()
 
+    # Export might need adjustment to include message_type
     def export_messages_to_csv(self, filename='linkedin_messages.csv'):
         messages = self.get_all_messages()
         if not messages:
             logger.warning("No messages to export")
             return False
         try:
+            # Add message_type to fieldnames
             fieldnames = ['message_id', 'full_name', 'company_name', 'linkedin_url',
-                          'message_text', 'generated_date', 'was_sent']
-            # Import csv locally if not imported globally
+                          'message_type', 'message_text', 'generated_date', 'was_sent']
             import csv
             with open(filename, 'w', newline='', encoding='utf-8') as csvfile:
                 writer = csv.DictWriter(csvfile, fieldnames=fieldnames, extrasaction='ignore')
                 writer.writeheader()
                 for message_dict in messages:
+                     # Ensure boolean conversion happens correctly
                      message_dict['was_sent'] = bool(message_dict.get('was_sent', 0))
                      writer.writerow(message_dict)
             logger.info(f"Successfully exported {len(messages)} messages to {filename}")
@@ -648,10 +682,12 @@ class DatabaseOps:
             logger.error(f"Error exporting messages to CSV: {str(e)}")
             return False
 
+    # Delete profile needs to delete *all* message types for that founder
     def delete_profile(self, message_id):
         conn = self._get_connection()
         cursor = conn.cursor()
         try:
+            # Find the founder_id associated with *any* message ID passed
             cursor.execute("SELECT founder_id FROM messages WHERE id = ?", (message_id,))
             result = cursor.fetchone()
             if not result:
@@ -660,25 +696,21 @@ class DatabaseOps:
             founder_id = result['founder_id']
 
             conn.execute("BEGIN TRANSACTION;")
-            cursor.execute("DELETE FROM messages WHERE id = ?", (message_id,))
-            logger.info(f"Deleted message ID {message_id}.")
+            # Delete ALL messages associated with this founder_id
+            cursor.execute("DELETE FROM messages WHERE founder_id = ?", (founder_id,))
+            deleted_messages_count = cursor.rowcount
+            logger.info(f"Deleted {deleted_messages_count} messages for founder ID {founder_id}.")
 
-            cursor.execute("SELECT COUNT(*) FROM messages WHERE founder_id = ?", (founder_id,))
-            count_result = cursor.fetchone()
-            remaining_messages = count_result[0] if count_result else 0
-
-            if remaining_messages == 0:
-                logger.info(f"No remaining messages for founder ID {founder_id}. Deleting founder and company data.")
-                cursor.execute("DELETE FROM companies WHERE founder_id = ?", (founder_id,))
-                cursor.execute("DELETE FROM founders WHERE id = ?", (founder_id,))
-            else:
-                 logger.info(f"{remaining_messages} messages still exist for founder ID {founder_id}.")
+            # Delete company and founder data since all messages are gone
+            cursor.execute("DELETE FROM companies WHERE founder_id = ?", (founder_id,))
+            cursor.execute("DELETE FROM founders WHERE id = ?", (founder_id,))
+            logger.info(f"Deleted founder and company data for founder ID {founder_id}.")
 
             conn.commit()
-            logger.info(f"Deletion process completed for message ID {message_id}.")
+            logger.info(f"Deletion process completed for founder ID {founder_id} (triggered by message ID {message_id}).")
             return True
         except sqlite3.Error as e:
-            logger.error(f"Database error deleting profile data for message ID {message_id}: {str(e)}")
+            logger.error(f"Database error deleting profile data for founder ID {founder_id}: {str(e)}")
             conn.rollback()
             return False
         finally:
@@ -699,127 +731,110 @@ class LinkedInOutreachPipeline:
         self.db = db_ops
         logger.info("LinkedInOutreachPipeline initialized with provided components.")
 
-    def process_single_profile_with_scraper(self, profile_url, scraper_instance):
-        """Process a single LinkedIn profile using the provided Playwright scraper instance."""
+    # Modified to accept user_tech_stack and generate/save both messages
+    def process_single_profile_with_scraper(self, profile_url, scraper_instance, user_tech_stack=""): # Added user_tech_stack
         if not scraper_instance:
              logger.error("Scraper instance is not provided.")
              return None
         try:
-            # Step 1: Extract LinkedIn profile data using Screenshot + Vision
+            # Step 1: Extract LinkedIn profile data
             founder_data = scraper_instance.extract_profile_data(profile_url)
             if not founder_data:
                 logger.error(f"Failed to extract profile data for {profile_url}")
-                return None # Return None to indicate failure
+                return None
 
-            # Step 2: Identify primary company from extracted data
+            # Step 2: Identify primary company
+            # ... (existing company identification logic remains the same) ...
             company_name = None
             company_title = None
-            company_description = None # Description might come from Vision now
-
-            # Use the 'experiences' list extracted by the Vision API
+            company_description = None
             if 'experiences' in founder_data and founder_data['experiences']:
-                # Prioritize roles like founder, CEO etc.
                 founder_keywords = ['founder', 'co-founder', 'cofounder', 'ceo', 'chief executive', 'owner', 'president', 'managing director', 'director', 'entrepreneur', 'proprietor']
                 found_primary = False
                 for exp in founder_data['experiences']:
-                    # Ensure exp is a dict and has 'title'
                     if isinstance(exp, dict) and 'title' in exp:
                         title_lower = exp.get('title', '').lower()
                         if any(keyword in title_lower for keyword in founder_keywords):
                             company_name = exp.get('company')
                             company_title = exp.get('title')
-                            company_description = exp.get('description', '') # Use description from vision if available
-                            logger.info(f"Identified primary company (founder role): {company_title} at {company_name}")
+                            company_description = exp.get('description', '')
                             found_primary = True
                             break
-                # Fallback to the first experience if no specific role found
                 if not found_primary and founder_data['experiences']:
                      first_exp = founder_data['experiences'][0]
                      if isinstance(first_exp, dict):
                          company_name = first_exp.get('company')
                          company_title = first_exp.get('title')
                          company_description = first_exp.get('description', '')
-                         logger.info(f"Using first listed company: {company_title} at {company_name}")
+            if not company_name: company_name = "their company"
 
-            # Fallback if no experiences found or company name still missing
-            if not company_name:
-                 logger.warning(f"Could not identify company name from experiences for {profile_url}. Using fallback.")
-                 company_name = "their company" # Fallback
 
-            # Step 3: Enhance founder data (add primary company info)
+            # Step 3: Enhance founder data
             enhanced_founder_data = founder_data.copy()
             enhanced_founder_data['primary_company'] = {
-                'name': company_name,
-                'title': company_title,
-                'description': company_description # Store description found
+                'name': company_name, 'title': company_title, 'description': company_description
             }
 
-            # Step 4: Research company (using the identified name)
-            # Researcher uses external APIs/scraping, independent of profile extraction method
+            # Step 4: Research company
             company_research_data = self.researcher.search_company_info(company_name)
-            # Combine research data with title identified from profile
-            company_research_data['title'] = company_title
+            company_research_data['title'] = company_title # Add title from profile
 
             # Step 5 & 6: Save data to database
             founder_id = self.db.save_founder_data(enhanced_founder_data, profile_url)
             if founder_id:
-                # Save the researched company data + title
                 self.db.save_company_data(founder_id, company_research_data)
             else:
                  logger.error(f"Failed to save founder data for {profile_url}, cannot proceed.")
-                 return None # Indicate failure
+                 return None
 
-            # Step 7: Summarize data (using data extracted via Vision + research)
-            # Pass enhanced_founder_data (from Vision) and company_research_data (from Researcher)
+            # Step 7: Summarize data
             company_summary = self.generator.summarize_company_data(enhanced_founder_data, company_research_data)
 
-            # Step 8: Generate message
-            personalized_message = self.generator.generate_personalized_message(enhanced_founder_data, company_summary)
+            # Step 8: Generate BOTH messages
+            connection_message = self.generator.generate_connection_request(enhanced_founder_data, company_summary)
+            job_inquiry_message = self.generator.generate_job_inquiry(enhanced_founder_data, company_summary, user_tech_stack) # Pass tech stack
 
-            # Step 9: Save message
-            message_id = self.db.save_message(founder_id, personalized_message)
+            # Step 9: Save BOTH messages
+            connection_message_id = self.db.save_message(founder_id, connection_message, 'connection')
+            job_inquiry_message_id = self.db.save_message(founder_id, job_inquiry_message, 'job_inquiry')
 
-            # Step 10: Return results including message_id
+            # Step 10: Return results including both messages and their IDs
             return {
                 'founder': enhanced_founder_data,
-                'company': company_research_data, # Return researched data
-                'summary': company_summary,
-                'message': personalized_message,
-                'message_id': message_id, # Include message_id
+                'company': company_research_data,
+                'summary': company_summary, # Keep summary if needed by frontend
+                'connection_message': connection_message,
+                'connection_message_id': connection_message_id,
+                'job_inquiry_message': job_inquiry_message,
+                'job_inquiry_message_id': job_inquiry_message_id,
                 'linkedin_url': profile_url,
                 'full_name': enhanced_founder_data.get('full_name'),
-                'company_name': company_name, # The identified company name
+                'company_name': company_name,
             }
 
         except Exception as e:
             logger.exception(f"Error in pipeline processing {profile_url}: {str(e)}")
-            return None # Indicate failure
+            return None
 
-    def process_batch_from_csv(self, csv_file, scraper_instance):
-        """Process multiple LinkedIn profiles from a CSV file using the provided scraper."""
-        # --- This method remains the same, it just calls the updated process_single_profile_with_scraper ---
+    # Modified to accept user_tech_stack
+    def process_batch_from_csv(self, csv_file, scraper_instance, user_tech_stack=""): # Added user_tech_stack
         if not scraper_instance:
              logger.error("Scraper instance is required for batch processing.")
              return False
         try:
+            # ... (reading CSV remains the same) ...
             profiles = []
-            # Import csv locally if not imported globally
             import csv
-            # Need BeautifulSoup for CompanyResearcher, import it here if not global
-            from bs4 import BeautifulSoup
+            from bs4 import BeautifulSoup # Ensure BS4 is available
             with open(csv_file, 'r', encoding='utf-8') as file:
                 reader = csv.DictReader(file)
                 for row in reader:
                     url = row.get('linkedin_url') or row.get('url')
-                    if url and url.startswith("http"): # Basic URL validation
+                    if url and url.startswith("http"):
                         profiles.append(url.strip())
                     else:
                         logger.warning(f"Skipping invalid or missing URL in CSV row: {row}")
-
-
-            if not profiles:
-                logger.error("No valid LinkedIn profile URLs found in CSV file")
-                return False
+            if not profiles: return False
 
             results_count = 0
             total_profiles = len(profiles)
@@ -827,20 +842,20 @@ class LinkedInOutreachPipeline:
 
             for i, profile_url in enumerate(profiles):
                 logger.info(f"Processing profile {i+1}/{total_profiles}: {profile_url}")
-                result = self.process_single_profile_with_scraper(profile_url, scraper_instance)
+                # Pass user_tech_stack to the processing method
+                result = self.process_single_profile_with_scraper(profile_url, scraper_instance, user_tech_stack)
                 if result:
                     results_count += 1
                     logger.info(f"Successfully processed: {profile_url}")
                 else:
                     logger.warning(f"Failed to process: {profile_url}")
-                # Add delay between requests
-                delay = random.uniform(15, 25) # Increase delay further for screenshot/API approach
+                delay = random.uniform(15, 25)
                 logger.info(f"Waiting {delay:.1f}s before next profile...")
                 time.sleep(delay)
 
             logger.info(f"Batch processing finished. Successfully processed {results_count}/{total_profiles} profiles.")
             return results_count > 0
-
+        # ... (exception handling remains the same) ...
         except FileNotFoundError:
              logger.error(f"CSV file not found: {csv_file}")
              return False
