@@ -100,196 +100,309 @@ function setupMobileMenu() {
 
 // Handle form submissions
 function setupFormHandlers() {
-    // Single profile processing
-    const processProfileBtn = document.getElementById('process-profile');
-    const loadingSpinner = document.getElementById('loading-spinner');
-    const loadingMessage = document.getElementById('loading-message');
-    const loadingProgress = document.getElementById('loading-progress');
-    const profileResults = document.getElementById('profile-results');
-    
-    if (processProfileBtn) {
-        processProfileBtn.addEventListener('click', () => {
-            const linkedinUrl = document.getElementById('linkedin-url').value.trim();
-            
-            if (!linkedinUrl) {
-                showToast('Please enter a LinkedIn profile URL', 'warning');
-                return;
-            }
-            
-            // Show loading with enhanced animation
-            const loader = showLoading('Analyzing LinkedIn profile...', 10);
-            
-            // Call the API endpoint
-            fetch('/api/process_profile', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ url: linkedinUrl }),
-            })
-            .then(response => {
-                loader.updateMessage('Generating personalized message...');
-                loader.setProgress(60);
-                
-                if (!response.ok) {
-                    throw new Error('Network response was not ok');
-                }
-                return response.json();
-            })
-            .then(data => {
-                // Complete loading with success animation
-                loader.complete('Message generated successfully!');
-                
-                // Show results
-                profileResults.classList.remove('hidden');
-                profileResults.classList.add('fade-in');
-                
-                // Populate with API response data
-                document.getElementById('result-name').textContent = data.founder.full_name || 'Unknown';
-                document.getElementById('result-headline').textContent = data.founder.headline || 'N/A';
-                document.getElementById('result-location').textContent = data.founder.location || 'N/A';
-                document.getElementById('result-company').textContent = data.company.name || 'N/A';
-                document.getElementById('result-summary').innerHTML = parseMarkdown(data.summary) || 'No summary available';
-                document.getElementById('result-message').innerHTML = parseMarkdown(data.message) || '';
-                
-                // Update character count
-                const messageLength = data.message ? data.message.length : 0;
-                document.getElementById('character-count').textContent = messageLength.toString();
-                
-                // Add message_id to the Mark Sent button
-                const markSentBtn = document.querySelector('#profile-results .linkd-btn-primary');
-                if (markSentBtn && data.message_id) {
-                    markSentBtn.setAttribute('data-id', data.message_id);
-                    
-                    // Add event listener if not already added
-                    if (!markSentBtn._hasListener) {
-                        markSentBtn._hasListener = true;
-                        markSentBtn.addEventListener('click', function() {
-                            const messageId = this.getAttribute('data-id');
-                            if (!messageId) {
-                                showToast('Cannot mark as sent: No message ID', 'warning');
-                                return;
-                            }
-                            
-                            // Show loading state
-                            const originalHtml = this.innerHTML;
-                            this.innerHTML = '<i class="fas fa-spinner fa-spin mr-1.5"></i> Processing...';
-                            this.disabled = true;
-                            
-                            markMessageAsSent(messageId, () => {
-                                // Show success
-                                this.innerHTML = '<i class="fas fa-check mr-1.5"></i> Marked as Sent';
-                                this.classList.add('bg-green-600');
-                                showToast('Message marked as sent!', 'success');
-                            });
-                        });
-                    }
-                }
+    // Single profile processing - Attach listeners to new buttons
+    const generateConnectionBtn = document.getElementById('generate-connection');
+    const generateJobInquiryBtn = document.getElementById('generate-job-inquiry');
 
-                // Add copy functionality
-                const copyBtn = document.querySelector('#result-copy');
-                if (copyBtn) {
-                    copyBtn.addEventListener('click', function() {
-                        const message = document.getElementById('result-message').innerText;
-                        copyToClipboard(message);
-                        
-                        // Show visual feedback
-                        const originalHtml = this.innerHTML;
-                        this.innerHTML = '<i class="fas fa-check text-green-600 mr-1.5"></i> Copied!';
-                        
-                        setTimeout(() => {
-                            this.innerHTML = originalHtml;
-                        }, 2000);
-                    });
-                }
-            })
-            .catch(error => {
-                console.error('Error processing profile:', error);
-                loader.error('Error processing profile. Please try again.');
-                showToast('Error processing profile. Please try again later.', 'error');
-            });
-        });
+    if (generateConnectionBtn) {
+        generateConnectionBtn.addEventListener('click', () => handleGenerateRequest('connection'));
     }
-    
-    // Batch processing
+    if (generateJobInquiryBtn) {
+        generateJobInquiryBtn.addEventListener('click', () => handleGenerateRequest('job_inquiry'));
+    }
+
+    // Batch processing - Corrected and completed listener
     const processBatchBtn = document.getElementById('process-batch');
-    if (processBatchBtn) {
+    const batchUrlsTextarea = document.getElementById('batch-urls');
+    const batchResultsContainer = document.getElementById('batch-results-container');
+    const batchResultsSection = document.getElementById('batch-results');
+
+    if (processBatchBtn && batchUrlsTextarea && batchResultsContainer && batchResultsSection) {
         processBatchBtn.addEventListener('click', () => {
-            const batchUrls = document.getElementById('batch-urls').value.trim();
-            
+            console.log("Process Batch button clicked"); // Debug log
+            const batchUrls = batchUrlsTextarea.value.trim();
+
             if (!batchUrls) {
-                showToast('Please enter at least one LinkedIn profile URL', 'warning');
+                showToast('Please enter at least one LinkedIn URL for batch processing.', 'warning');
+                batchUrlsTextarea.focus();
+                batchUrlsTextarea.classList.add('shake-animation');
+                setTimeout(() => batchUrlsTextarea.classList.remove('shake-animation'), 500);
                 return;
             }
-            
-            // Parse URLs into an array
-            const urls = batchUrls.split('\n').filter(url => url.trim());
-            
+
+            // Parse URLs into an array, removing empty lines
+            const urls = batchUrls.split('\n').map(url => url.trim()).filter(url => url);
+
+            if (urls.length === 0) {
+                showToast('No valid URLs found in the batch input.', 'warning');
+                return;
+            }
+
             if (urls.length > 5) {
-                showToast('You can process a maximum of 5 profiles at once', 'warning');
+                showToast(`Maximum 5 URLs allowed per batch. You entered ${urls.length}.`, 'warning');
                 return;
             }
-            
+
+            console.log("Processing batch URLs:", urls); // Debug log
+
             // Show loading spinner
-            loadingSpinner.classList.remove('hidden');
-            loadingMessage.textContent = 'Processing batch profiles...';
-            loadingProgress.style.width = '10%';
-            
+            const loader = showLoading(`Processing ${urls.length} profiles...`, 5);
+            batchResultsSection.classList.remove('hidden'); // Show results section
+            batchResultsContainer.innerHTML = ''; // Clear previous results
+
             // Call the API endpoint
             fetch('/api/process_batch', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({ urls: urls }),
+                // Ensure tech_stack is included if needed, similar to single profile
+                body: JSON.stringify({
+                    urls: urls,
+                    tech_stack: document.getElementById('tech-stack')?.value.trim() || '' // Include tech stack if relevant for batch
+                 }),
             })
             .then(response => {
-                loadingProgress.style.width = '70%';
                 if (!response.ok) {
-                    throw new Error('Network response was not ok');
+                    return response.json().then(err => { throw new Error(err.error || `HTTP error! status: ${response.status}`) });
                 }
                 return response.json();
             })
             .then(data => {
-                // Hide loading spinner
-                loadingSpinner.classList.add('hidden');
-                loadingProgress.style.width = '100%';
-                
-                // Show batch results
-                const batchResults = document.getElementById('batch-results');
-                batchResults.classList.remove('hidden');
-                batchResults.classList.add('fade-in');
-                
-                // Create batch results cards
-                const container = document.getElementById('batch-results-container');
-                container.innerHTML = '';
-                
+                console.log("Batch processing response:", data); // Debug log
+                loader.complete(`Batch processing complete!`);
+                batchResultsSection.classList.remove('hidden');
+
                 if (Array.isArray(data)) {
                     data.forEach(result => {
-                        const resultCard = createBatchResultCard({
-                            name: result.founder.full_name || 'Unknown',
-                            company: result.company.name || 'N/A',
-                            url: result.founder.linkedin_url || '#',
-                            message: result.message || '',
-                            message_id: result.message_id || null
-                        });
-                        container.appendChild(resultCard);
+                        if (result.error) {
+                            // Display error card
+                            const errorCard = document.createElement('div');
+                            errorCard.className = 'linkd-card p-4 mb-4 bg-red-50 border border-red-200';
+                            errorCard.innerHTML = `
+                                <p class="text-sm font-medium text-red-700">Error processing URL: ${result.url || 'Unknown URL'}</p>
+                                <p class="text-xs text-red-600">${result.error}</p>
+                            `;
+                            batchResultsContainer.appendChild(errorCard);
+                        } else {
+                            // Display success card (assuming createBatchResultCard exists and handles the new structure)
+                            // Adapt createBatchResultCard if needed to handle connection/job inquiry messages separately
+                            // For now, let's assume it primarily uses the connection message for the card preview/actions
+                            const cardData = {
+                                name: result.full_name || 'N/A',
+                                company: result.company_name || 'N/A',
+                                // Pass both messages, let the card decide what to show/copy
+                                connection_message: result.connection_message?.text || '',
+                                connection_message_id: result.connection_message?.id || null,
+                                job_inquiry_message: result.job_inquiry_message?.text || '',
+                                job_inquiry_message_id: result.job_inquiry_message?.id || null,
+                                // Decide which message ID to use for the primary "Mark Sent" if shown on card
+                                message_id: result.connection_message?.id // Defaulting to connection ID for card actions
+                            };
+                            // Check if createBatchResultCard exists before calling
+                            if (typeof createBatchResultCard === 'function') {
+                                const cardElement = createBatchResultCard(cardData);
+                                batchResultsContainer.appendChild(cardElement);
+                            } else {
+                                console.error("createBatchResultCard function not found.");
+                                // Fallback display if function is missing
+                                const fallbackCard = document.createElement('div');
+                                fallbackCard.className = 'linkd-card p-4 mb-4';
+                                fallbackCard.textContent = `Processed: ${cardData.name} at ${cardData.company}`;
+                                batchResultsContainer.appendChild(fallbackCard);
+                            }
+                        }
                     });
                 } else {
-                    // Handle case where API returns a single result or error object
-                    container.innerHTML = '<div class="bg-red-50 p-4 rounded-xl text-red-600">Error processing batch profiles</div>';
+                     showToast('Received unexpected data format from batch processing.', 'error');
                 }
+                 // Scroll to results
+                 batchResultsSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
             })
             .catch(error => {
                 console.error('Error processing batch:', error);
-                loadingSpinner.classList.add('hidden');
-                showToast('Error processing batch profiles. Please try again later.', 'error');
+                loader.error(`Batch Error: ${error.message || 'Failed to process batch.'}`);
+                showToast(`Batch Error: ${error.message || 'Failed to process batch.'}`, 'error');
+                // Optionally hide or clear results section on error
+                // batchResultsSection.classList.add('hidden');
             });
         });
+    } else {
+        // Log if any required elements are missing
+        if (!processBatchBtn) console.error("Batch process button not found");
+        if (!batchUrlsTextarea) console.error("Batch URLs textarea not found");
+        if (!batchResultsContainer) console.error("Batch results container not found");
+        if (!batchResultsSection) console.error("Batch results section not found");
     }
-    
+
     // History tab - Load message history on tab click
     document.getElementById('tab-history')?.addEventListener('click', loadMessageHistory);
+
+    // Resume Upload (keep existing logic)
+    setupResumeUpload();
+    checkExistingResume(); // Check on load
+
+    // Settings Modal (keep existing logic)
+    setupSettingsModal();
+}
+
+// NEW: Handler for both generate buttons
+let isProcessingSingleProfile = false; // Prevent duplicate clicks
+
+function handleGenerateRequest(messageType) {
+    if (isProcessingSingleProfile) {
+        showToast('Already processing a request...', 'warning');
+        return;
+    }
+
+    const linkedinUrlInput = document.getElementById('linkedin-url');
+    const techStackInput = document.getElementById('tech-stack');
+    const profileResultsDiv = document.getElementById('profile-results');
+
+    const linkedinUrl = linkedinUrlInput.value.trim();
+    const techStack = techStackInput.value.trim();
+
+    if (!linkedinUrl) {
+        showToast('Please enter a LinkedIn profile URL', 'warning');
+        linkedinUrlInput.focus();
+        linkedinUrlInput.classList.add('shake-animation');
+        setTimeout(() => linkedinUrlInput.classList.remove('shake-animation'), 500);
+        return;
+    }
+
+    // Basic URL validation
+    if (!linkedinUrl.toLowerCase().includes('linkedin.com/in/')) {
+        showToast('Please enter a valid LinkedIn profile URL (e.g., linkedin.com/in/username)', 'warning');
+        linkedinUrlInput.focus();
+        linkedinUrlInput.classList.add('shake-animation');
+        setTimeout(() => linkedinUrlInput.classList.remove('shake-animation'), 500);
+        return;
+    }
+
+    isProcessingSingleProfile = true;
+    profileResultsDiv.classList.add('hidden'); // Hide previous results
+
+    const loaderMessage = messageType === 'connection' ? 'Generating connection request...' : 'Generating job inquiry...';
+    const loader = showLoading(loaderMessage, 10);
+
+    fetch('/api/process_profile', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            url: linkedinUrl,
+            tech_stack: techStack,
+            message_type: messageType // Send the requested type
+        }),
+    })
+    .then(response => {
+        if (!response.ok) {
+            return response.json().then(err => { throw new Error(err.error || `HTTP error! status: ${response.status}`) });
+        }
+        return response.json();
+    })
+    .then(data => {
+        loader.complete('Message generated successfully!');
+        displayGeneratedMessage(data); // Call function to display results
+        isProcessingSingleProfile = false;
+    })
+    .catch(error => {
+        console.error('Error processing profile:', error);
+        loader.error(`Error: ${error.message || 'Failed to generate message.'}`);
+        showToast(`Error: ${error.message || 'Failed to generate message.'}`, 'error');
+        isProcessingSingleProfile = false;
+    });
+}
+
+// NEW: Function to display the generated message
+function displayGeneratedMessage(data) {
+    const profileResultsDiv = document.getElementById('profile-results');
+    const resultNameSpan = document.getElementById('result-name');
+    const messageTypeLabel = document.getElementById('message-type-label');
+    const resultMessageDiv = document.getElementById('result-message');
+    const charCountSpan = document.getElementById('char-count');
+    const copyButton = document.getElementById('copy-message');
+    const markSentButton = document.getElementById('mark-sent-message');
+
+    if (!data || !data.message_text) {
+        showToast('Received invalid data from server.', 'error');
+        profileResultsDiv.classList.add('hidden');
+        return;
+    }
+
+    resultNameSpan.textContent = data.full_name || 'the profile';
+    resultMessageDiv.innerHTML = parseMarkdown(data.message_text); // Use parseMarkdown
+
+    const messageLength = data.message_text.length;
+    let charLimit = '';
+    if (data.message_type === 'connection') {
+        messageTypeLabel.textContent = 'Connection Request Message:';
+        charLimit = '/ 300 chars';
+        markSentButton.classList.remove('hidden'); // Show Mark Sent for connection
+        markSentButton.setAttribute('data-id', data.message_id);
+        // Add listener for mark sent button if not already added
+        if (!markSentButton._hasListener) {
+             markSentButton.addEventListener('click', handleMarkSentClick);
+             markSentButton._hasListener = true;
+        }
+    } else if (data.message_type === 'job_inquiry') {
+        messageTypeLabel.textContent = 'Job Inquiry Message:';
+        charLimit = '/ ~2000 chars'; // LinkedIn message limit is higher
+        markSentButton.classList.add('hidden'); // Hide Mark Sent for job inquiry
+    } else {
+        messageTypeLabel.textContent = 'Generated Message:';
+        markSentButton.classList.add('hidden');
+    }
+
+    charCountSpan.textContent = `(${messageLength} ${charLimit})`;
+    if (data.message_type === 'connection' && messageLength > 300) {
+        charCountSpan.classList.add('text-red-600', 'font-semibold');
+    } else {
+        charCountSpan.classList.remove('text-red-600', 'font-semibold');
+    }
+
+
+    // Setup copy button
+    copyButton.setAttribute('data-message-id', data.message_id); // Store ID if needed
+    copyButton.onclick = () => {
+        copyToClipboard(data.message_text);
+        // Visual feedback for copy
+        const originalIcon = copyButton.innerHTML;
+        copyButton.innerHTML = '<i class="fas fa-check text-green-600"></i> Copied';
+        copyButton.disabled = true;
+        setTimeout(() => {
+            copyButton.innerHTML = originalIcon;
+            copyButton.disabled = false;
+        }, 1500);
+    };
+
+
+    profileResultsDiv.classList.remove('hidden');
+    profileResultsDiv.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+// NEW: Handler for the Mark Sent button in the results section
+function handleMarkSentClick(event) {
+    const button = event.currentTarget;
+    const messageId = button.getAttribute('data-id');
+    if (!messageId) {
+        showToast('Cannot mark message as sent: Missing ID.', 'error');
+        return;
+    }
+
+    markMessageAsSent(messageId, () => {
+        showToast('Message marked as sent!', 'success');
+        button.innerHTML = '<i class="fas fa-check-double"></i> Sent';
+        button.disabled = true;
+        button.classList.replace('linkd-btn-primary', 'linkd-btn-secondary');
+        button.classList.add('opacity-70');
+
+        // Optionally, refresh history tab if visible
+        if (!document.getElementById('content-history').classList.contains('hidden')) {
+            loadMessageHistory();
+        }
+    });
 }
 
 // Enhanced batch result card with interactive effects
@@ -1120,4 +1233,378 @@ function parseMarkdown(text) {
     }
     
     return text;
+}
+
+// Resume Upload Functionality
+document.addEventListener('DOMContentLoaded', function() {
+    setupResumeUpload();
+    checkExistingResume();
+});
+
+function setupResumeUpload() {
+    const resumeUploadForm = document.getElementById('resumeUploadForm');
+    const resumeFileInput = document.getElementById('resumeFile');
+    const fileNameDisplay = document.getElementById('file-name-display');
+
+    // Update filename display when file is selected
+    if (resumeFileInput) {
+        resumeFileInput.addEventListener('change', function() {
+            if (this.files.length > 0) {
+                const fileName = this.files[0].name;
+                fileNameDisplay.textContent = fileName.length > 25 ? 
+                    fileName.substring(0, 22) + '...' : fileName;
+                fileNameDisplay.classList.add('text-indigo-600');
+                fileNameDisplay.classList.add('font-medium');
+            } else {
+                fileNameDisplay.textContent = 'Select PDF resume';
+                fileNameDisplay.classList.remove('text-indigo-600');
+                fileNameDisplay.classList.remove('font-medium');
+            }
+        });
+    }
+
+    // Handle resume form submission
+    if (resumeUploadForm) {
+        resumeUploadForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const formData = new FormData();
+            const fileInput = document.getElementById('resumeFile');
+            
+            if (fileInput.files.length === 0) {
+                showToast('Please select a PDF resume file', 'warning');
+                return;
+            }
+            
+            formData.append('resume', fileInput.files[0]);
+            
+            // Show loading animation
+            const loader = showLoading('Processing your resume...', 15);
+            
+            fetch('/api/upload_resume', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`Error ${response.status}: ${response.statusText}`);
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data.error) {
+                    loader.error(data.error);
+                    showToast(data.error, 'error');
+                } else {
+                    loader.complete('Resume processed successfully!');
+                    showToast('Resume processed successfully!', 'success');
+                    
+                    // Update UI to show resume is active
+                    updateResumeStatus(true);
+                    
+                    // Display extracted data if available
+                    if (data.tech_stack_summary) {
+                        displayResumePreview(data.tech_stack_summary);
+                    }
+                    
+                    // Store flag in localStorage that resume is uploaded
+                    localStorage.setItem('resumeUploaded', 'true');
+                }
+            })
+            .catch(error => {
+                console.error('Error uploading resume:', error);
+                loader.error('Error processing resume');
+                showToast('Error uploading resume. Please try again.', 'error');
+            });
+        });
+    }
+}
+
+function checkExistingResume() {
+    // Check if we have an active resume
+    fetch('/api/resume_data')
+        .then(response => {
+            if (response.ok) {
+                return response.json();
+            } else if (response.status === 404) {
+                // No active resume found
+                return null;
+            } else {
+                throw new Error('Error checking resume status');
+            }
+        })
+        .then(data => {
+            if (data && !data.error) {
+                // We have resume data
+                updateResumeStatus(true);
+                
+                // Create a simplified preview from the resume data
+                const skills = data.skills?.technical_skills || [];
+                const skillsList = Array.isArray(skills) ? skills.join(', ') : skills;
+                
+                let experienceText = '';
+                if (data.experience && data.experience.length > 0) {
+                    const latestJob = data.experience[0];
+                    experienceText = `${latestJob.title} at ${latestJob.company}`;
+                }
+                
+                const previewData = {
+                    name: data.basic_info?.full_name || '',
+                    skills: skillsList,
+                    experience: experienceText
+                };
+                
+                displayResumePreview(previewData);
+                
+                // Update tech stack textarea if it's empty
+                const techStackField = document.getElementById('tech-stack');
+                if (techStackField && (!techStackField.value || techStackField.value.trim() === '')) {
+                    techStackField.value = skillsList;
+                }
+            } else {
+                // No resume data
+                updateResumeStatus(false);
+            }
+        })
+        .catch(error => {
+            console.error('Error checking resume status:', error);
+            // Just assume no resume for error cases
+            updateResumeStatus(false);
+        });
+}
+
+function updateResumeStatus(isActive) {
+    const statusBadge = document.getElementById('resume-status-badge');
+    const uploadContainer = document.getElementById('resume-upload-container');
+    const dataPreview = document.getElementById('resume-data-preview');
+    
+    if (statusBadge) {
+        statusBadge.classList.remove('hidden');
+        
+        if (isActive) {
+            statusBadge.textContent = 'Resume Active';
+            statusBadge.classList.add('bg-green-100', 'text-green-800');
+            statusBadge.classList.remove('bg-yellow-100', 'text-yellow-800');
+            
+            // Show data preview if it exists
+            if (dataPreview) dataPreview.classList.remove('hidden');
+        } else {
+            statusBadge.textContent = 'No Resume';
+            statusBadge.classList.add('bg-yellow-100', 'text-yellow-800');
+            statusBadge.classList.remove('bg-green-100', 'text-green-800');
+            
+            // Hide data preview
+            if (dataPreview) dataPreview.classList.add('hidden');
+        }
+    }
+}
+
+function displayResumePreview(data) {
+    const previewContainer = document.getElementById('resume-data-preview');
+    const nameElement = document.getElementById('resume-name');
+    const skillsElement = document.getElementById('resume-skills');
+    const experienceElement = document.getElementById('resume-experience');
+    
+    if (!previewContainer) return;
+    
+    // Show the preview container
+    previewContainer.classList.remove('hidden');
+    
+    // If data is a string (tech_stack_summary), parse and display it
+    if (typeof data === 'string') {
+        // Try to extract various parts from the text summary
+        const lines = data.split('\n').filter(line => line.trim());
+        
+        let skillsText = '';
+        let experienceText = '';
+        let nameText = 'Your Resume';
+        
+        lines.forEach(line => {
+            if (line.includes('Technical skills:')) {
+                skillsText = line.split('Technical skills:')[1].trim();
+            } else if (line.includes('Recent role:')) {
+                experienceText = line.split('Recent role:')[1].trim();
+            }
+        });
+        
+        if (nameElement) nameElement.textContent = nameText;
+        if (skillsElement) skillsElement.textContent = skillsText;
+        if (experienceElement) experienceElement.textContent = experienceText;
+        
+    } else if (typeof data === 'object') {
+        // Handle structured object data
+        if (nameElement) nameElement.textContent = data.name || 'Your Resume';
+        if (skillsElement) skillsElement.textContent = data.skills || '';
+        if (experienceElement) experienceElement.textContent = data.experience || '';
+    }
+}
+
+// Modify the process-profile button handler to indicate resume usage
+const processProfileBtn = document.getElementById('process-profile');
+if (processProfileBtn) {
+    // Remove any existing click handlers first to prevent duplication
+    processProfileBtn.onclick = null;
+    
+    // Set up a single click handler with debounce protection
+    let isProcessing = false;
+    
+    processProfileBtn.onclick = function(event) {
+        // Prevent multiple simultaneous submissions
+        if (isProcessing) {
+            console.log("Already processing a request, please wait...");
+            return;
+        }
+        
+        const linkedinUrl = document.getElementById('linkedin-url').value.trim();
+        const techStack = document.getElementById('tech-stack').value.trim();
+        const hasResume = localStorage.getItem('resumeUploaded') === 'true';
+        
+        if (!linkedinUrl) {
+            showToast('Please enter a LinkedIn profile URL', 'warning');
+            return;
+        }
+        
+        // Set processing flag to prevent duplicate requests
+        isProcessing = true;
+        
+        // Show loading animation
+        const loader = showLoading('Processing LinkedIn profile...', 60);
+        
+        // Continue with your existing fetch request...
+        fetch('/api/process_profile', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ linkedin_url: linkedinUrl, tech_stack: techStack })
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`Error ${response.status}: ${response.statusText}`);
+            }
+            return response.json();
+        })
+        .then(data => {
+            // Reset processing flag when done
+            isProcessing = false;
+            
+            // Rest of your existing code...
+        })
+        .catch(error => {
+            // Reset processing flag on error
+            isProcessing = false;
+            console.error('Error processing profile:', error);
+            loader.error('Error processing profile. Please try again.');
+            showToast('Error processing profile. Please try again later.', 'error');
+        });
+    };
+}
+
+// Settings modal functionality
+document.addEventListener('DOMContentLoaded', function() {
+    const settingsBtn = document.getElementById('btn-settings');
+    const settingsModal = document.getElementById('settings-modal');
+    const closeSettingsModal = document.getElementById('close-settings-modal');
+    const closeSettingsBtn = document.getElementById('close-settings-btn');
+    const clearResumeBtn = document.getElementById('clear-resume-btn');
+    
+    // Open settings modal
+    if (settingsBtn && settingsModal) {
+        settingsBtn.addEventListener('click', function() {
+            // Update resume status in settings before showing
+            updateSettingsResumeStatus();
+            
+            // Show modal
+            settingsModal.classList.remove('hidden');
+            settingsModal.classList.add('fade-in');
+        });
+    }
+    
+    // Close settings modal
+    if (closeSettingsModal && settingsModal) {
+        closeSettingsModal.addEventListener('click', function() {
+            settingsModal.classList.add('hidden');
+        });
+    }
+    
+    if (closeSettingsBtn && settingsModal) {
+        closeSettingsBtn.addEventListener('click', function() {
+            settingsModal.classList.add('hidden');
+        });
+    }
+    
+    // Close settings modal when clicking outside content
+    if (settingsModal) {
+        settingsModal.addEventListener('click', function(event) {
+            if (event.target === settingsModal) {
+                settingsModal.classList.add('hidden');
+            }
+        });
+    }
+    
+    // Handle clear resume button
+    if (clearResumeBtn) {
+        clearResumeBtn.addEventListener('click', function() {
+            // Confirm before clearing
+            if (confirm('Are you sure you want to clear your resume data? This will remove all extracted skills and experience.')) {
+                // Call API to clear resume (you'll need to implement this endpoint)
+                fetch('/api/clear_resume', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Failed to clear resume');
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    showToast('Resume data cleared successfully', 'success');
+                    localStorage.removeItem('resumeUploaded');
+                    
+                    // Update UI
+                    updateResumeStatus(false);
+                    updateSettingsResumeStatus();
+                })
+                .catch(error => {
+                    console.error('Error clearing resume:', error);
+                    showToast('Failed to clear resume. Please try again.', 'error');
+                });
+            }
+        });
+    }
+});
+
+function updateSettingsResumeStatus() {
+    const resumeStatus = document.getElementById('settings-resume-status');
+    
+    fetch('/api/resume_data')
+        .then(response => {
+            if (response.ok) {
+                return response.json();
+            } else if (response.status === 404) {
+                throw new Error('No resume found');
+            } else {
+                throw new Error('Error checking resume');
+            }
+        })
+        .then(data => {
+            const name = data.basic_info?.full_name || 'Your resume';
+            const uploadDate = new Date().toLocaleDateString(); // Ideally from the server
+            
+            resumeStatus.innerHTML = `
+                <span class="font-medium text-indigo-600">${name}</span> 
+                <span class="text-gray-500">• Uploaded on ${uploadDate}</span>
+                <div class="mt-1">
+                    <span class="inline-block bg-green-100 text-green-800 text-xs px-2 py-0.5 rounded-full">
+                        <i class="fas fa-check-circle mr-1"></i> Active
+                    </span>
+                </div>
+            `;
+        })
+        .catch(error => {
+            resumeStatus.textContent = 'No resume uploaded yet.';
+        });
 }

@@ -10,3 +10,4 @@ chromedriver.log
 /stan
 /.vscode
 /playwright_user_data/
+/resume_uploads/

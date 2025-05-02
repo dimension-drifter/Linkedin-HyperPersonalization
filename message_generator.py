@@ -147,19 +147,46 @@ class MessageGenerator:
             logger.error(f"Error during message shortening API call: {e}")
             return message[:target_length-3] + "..." # Fallback
 
-    def generate_connection_request(self, founder_data, company_summary):
-        """Generate a personalized LinkedIn connection request message (under 300 chars)."""
+    def generate_connection_request(self, founder_data, company_summary, resume_data=None):
+        """Generate a personalized LinkedIn connection request message (under 300 chars) with resume data."""
         try:
             founder_name = founder_data.get('full_name', '').split()[0] if founder_data.get('full_name') else 'there'
             company_name = founder_data.get('primary_company', {}).get('name', 'their company')
+            
+            # Create resume context if available
+            resume_context = ""
+            if resume_data:
+                # Extract relevant information from resume
+                basic_info = resume_data.get('basic_info', {})
+                user_name = basic_info.get('full_name', '')
+                
+                skills = resume_data.get('skills', {})
+                tech_skills = skills.get('technical_skills', [])
+                if isinstance(tech_skills, list):
+                    tech_skills = ', '.join(tech_skills[:5])  # Limit to top 5 skills
+                    
+                recent_experience = None
+                if resume_data.get('experience') and len(resume_data['experience']) > 0:
+                    recent_experience = resume_data['experience'][0]
+                
+                # Build context string
+                resume_context = f"""
+                User's Resume Information:
+                Name: {user_name}
+                Key Technical Skills: {tech_skills}
+                """
+                
+                if recent_experience:
+                    resume_context += f"""
+                    Recent Role: {recent_experience.get('title', '')} at {recent_experience.get('company', '')}
+                    """
 
-            # Adjusted prompt for connection request (shorter limit)
+            # Enhanced prompt with resume data
             prompt = f"""
-            **Objective:** Generate a **highly personalized and concise** LinkedIn connection request message (strictly under 300 characters) to {founder_name}, the leader of {company_name}. The message must demonstrate genuine interest based on a *specific* detail from the provided summary.
+            **Objective:** Generate a **highly personalized and concise** LinkedIn connection request message (strictly under 400 characters) to {founder_name}, the leader of {company_name}. The message must demonstrate genuine interest based on a *specific* detail from the provided summary.
 
-            **Sender Persona (Implicit):** Assume the sender has a background or strong interest relevant to the founder's industry or technology.
-
-            **Core Task:** Extract **one unique, non-obvious point of resonance** or **specific achievement** from the summary.
+            **Sender Information:**
+            {resume_context}
 
             **Recipient:** {founder_name}
             **Recipient's Company:** {company_name}
@@ -170,34 +197,29 @@ class MessageGenerator:
             --- END SUMMARY ---
 
             **Instructions:**
-            1.  **Identify Unique Hook:** Pinpoint 1 specific and compelling detail.
-            2.  **Draft Message:**
-                *   Start warmly: "Hi {founder_name},"
-                *   Reference the specific hook concisely (e.g., "Saw the summary of your work at {company_name} - particularly interested in [Specific Detail]..." or "Your approach to [Specific Topic] mentioned in the summary caught my eye...")
-                *   Briefly state relevance/interest implicitly or explicitly.
-                *   End with a simple call to connect (e.g., "Would love to connect.", "Hope to connect.").
-            3.  **Constraint Checklist:**
-                *   Strictly under 300 characters.
-                *   Mentions {founder_name}.
-                *   References a *specific* detail from the summary.
-                *   Professional and genuine tone.
-
-            **AVOID:** Generic praise, vague interest, exceeding character limit.
-
-            **Example Structure:**
-            "Hi {founder_name}, read the summary about {company_name}. As someone in [Field], your team's work on [Specific Detail] is fascinating. Would love to connect."
+            1. **Identify Common Ground:** Find a specific connection point between the sender's background/skills and the recipient's company/work.
+            2. **Draft Message:**
+               * Start warmly: "Hi {founder_name},"
+               * Briefly mention specific relevant experience/skill from the sender's background that relates to {company_name}'s work.
+               * Reference something specific about their company that connects to your background.
+               * End with a simple call to connect.
+            3. **Constraint Checklist:**
+               * Strictly under 300 characters (critical LinkedIn limitation).
+               * Mentions both {founder_name} and your own relevant background.
+               * References a *specific* detail from the recipient's company.
+               * Professional, genuine, and personalized tone.
 
             **Generate the connection request message now.**
             """
 
             response = self.generation_model.generate_content(prompt)
             if not response or not hasattr(response, 'text'):
-                 logger.error("Invalid response received from Gemini API during connection request generation.")
-                 raise ValueError("Invalid response from Gemini API.")
+                logger.error("Invalid response received from Gemini API during connection request generation.")
+                raise ValueError("Invalid response from Gemini API.")
             message = response.text.strip()
 
             # Shorten if needed (target 300 chars for connection requests)
-            message = self._shorten_message(message, 300, founder_name, company_name)
+            message = self._shorten_message(message, 400, founder_name, company_name)
 
             return message
 
@@ -206,25 +228,82 @@ class MessageGenerator:
             fallback_name = founder_data.get('full_name', 'there')
             return f"Hi {fallback_name}, saw your profile and work. Would be great to connect." # Shorter fallback
 
-    def generate_job_inquiry(self, founder_data, company_summary, user_tech_stack):
-        """Generate a personalized message inquiring about roles (longer, post-connection)."""
+    def generate_job_inquiry(self, founder_data, company_summary, user_tech_stack="", resume_data=None):
+        """Generate a personalized message inquiring about roles with resume data."""
         try:
             founder_name = founder_data.get('full_name', '').split()[0] if founder_data.get('full_name') else 'there'
             company_name = founder_data.get('primary_company', {}).get('name', 'their company')
+            
+            # Use resume data if available, otherwise fall back to tech stack string
+            detailed_background = ""
+            
+            if resume_data:
+                # Extract relevant details from resume
+                basic_info = resume_data.get('basic_info', {})
+                user_name = basic_info.get('full_name', '')
+                
+                # Get skills
+                skills_section = []
+                tech_skills = resume_data.get('skills', {}).get('technical_skills', [])
+                if tech_skills:
+                    if isinstance(tech_skills, list):
+                        skills_section.append(f"Technical skills: {', '.join(tech_skills)}")
+                    else:
+                        skills_section.append(f"Technical skills: {tech_skills}")
+                        
+                soft_skills = resume_data.get('skills', {}).get('soft_skills', [])
+                if soft_skills:
+                    if isinstance(soft_skills, list) and soft_skills:
+                        skills_section.append(f"Soft skills: {', '.join(soft_skills[:3])}")
+                    elif isinstance(soft_skills, str):
+                        skills_section.append(f"Soft skills: {soft_skills}")
+                
+                # Get experience
+                experience_section = []
+                experiences = resume_data.get('experience', [])
+                if experiences:
+                    for i, exp in enumerate(experiences[:2]):  # Get top 2 experiences
+                        exp_line = f"- {exp.get('title', '')} at {exp.get('company', '')}"
+                        if exp.get('duration'):
+                            exp_line += f" ({exp.get('duration', '')})"
+                        experience_section.append(exp_line)
+                
+                # Get education
+                education_section = []
+                education = resume_data.get('education', [])
+                if education:
+                    for edu in education[:1]:  # Get top education
+                        edu_line = f"- {edu.get('degree', '')} in {edu.get('field', '')}"
+                        if edu.get('institution'):
+                            edu_line += f" from {edu.get('institution', '')}"
+                        education_section.append(edu_line)
+                
+                # Build detailed background
+                detailed_background = f"""
+                User's Name: {user_name}
+                
+                Skills:
+                {chr(10).join(skills_section)}
+                
+                Key Experience:
+                {chr(10).join(experience_section)}
+                
+                Education:
+                {chr(10).join(education_section)}
+                """
+            else:
+                # Fall back to tech stack string if no resume
+                detailed_background = f"User's tech stack/background: {user_tech_stack}"
 
-            if not user_tech_stack:
-                logger.warning("User tech stack not provided for job inquiry message. Using generic placeholder.")
-                user_tech_stack = "[Your relevant skills and experience area]" # Placeholder
-
-            # New prompt for job inquiry
+            # Enhanced prompt with resume data
             prompt = f"""
-            **Objective:** Generate a personalized and professional LinkedIn message (around 800-1200 characters) to {founder_name} of {company_name}. Assume you are already connected. The goal is to express genuine interest in the company based on their work and inquire about potential opportunities relevant to the user's tech stack.
+            **Objective:** Generate a personalized and professional LinkedIn message (around 800-1200 characters) to {founder_name} of {company_name}. Assume you are already connected. The goal is to express genuine interest in the company based on their work and inquire about potential opportunities relevant to the user's background.
 
             **Recipient:** {founder_name}
             **Recipient's Company:** {company_name}
 
-            **User's Background/Tech Stack:**
-            {user_tech_stack}
+            **User's Detailed Background:**
+            {detailed_background}
 
             **Detailed Founder & Company Summary (Source for Personalization):**
             --- START SUMMARY ---
@@ -232,39 +311,23 @@ class MessageGenerator:
             --- END SUMMARY ---
 
             **Instructions:**
-            1.  **Reference Connection (Optional but good):** Briefly mention connecting previously or following their work. (e.g., "Hi {founder_name}, great connecting with you." or "Hi {founder_name}, I've been following {company_name}'s progress since we connected...")
-            2.  **Reiterate Interest:** Reference a *specific* aspect of the company's work, mission, or recent developments (from the summary) that genuinely interests you and aligns with your background. Explain *why* it's interesting to you. (e.g., "I was particularly impressed by the summary detailing [Specific Achievement/Project]..." or "The focus on [Company's Mission Aspect] resonates strongly with my background in...")
-            3.  **Introduce Yourself & Skills:** Briefly introduce your key skills and experience area, directly referencing the `user_tech_stack` provided. Highlight how your skills could potentially align with the company's goals or technology. (e.g., "With my background in {user_tech_stack}, I'm very interested in how companies like yours are tackling [Problem Area]...")
-            4.  **Express Interest in Opportunities:** Clearly state your interest in exploring potential roles at {company_name} that align with your skills. Avoid demanding a job.
-            5.  **Call to Action (Polite Inquiry):** Ask politely about the best way to learn about relevant openings or who the appropriate contact might be. (e.g., "Are there opportunities available for someone with my skillset?", "Could you point me to the best person or resource for exploring potential roles?", "I'd appreciate any guidance on how best to explore opportunities at {company_name}.")
-            6.  **Tone:** Professional, respectful, enthusiastic, and personalized. Not overly demanding or generic.
-            7.  **Length:** Aim for roughly 800-1200 characters. More detailed than a connection request, but still respectful of their time.
-
-            **AVOID:**
-            *   Sounding like a mass email.
-            *   Generic statements ("I'm looking for a job").
-            *   Demanding an interview or specific role.
-            *   Poor grammar or unprofessional language.
-
-            **Example Structure:**
-            "Hi {founder_name}, great connecting. I've been following {company_name}'s work, and the summary mentioning [Specific Detail from Summary] particularly caught my eye, especially given its relevance to [Area].
-
-            My background is in {user_tech_stack}, and I'm passionate about [Related Field/Goal]. I'm exploring opportunities where I can apply these skills to innovative projects like those at {company_name}.
-
-            Would you be open to pointing me toward the best resource or contact for learning about potential roles aligned with my experience? Any guidance would be greatly appreciated.
-
-            Thanks,"
+            1. **Reference Connection:** Briefly mention connecting previously or following their work.
+            2. **Highlight Relevant Experience:** Reference 1-2 specific experiences or skills from the user's background that align well with {company_name}'s work. Be specific about why these experiences would be valuable to their company.
+            3. **Demonstrate Company Knowledge:** Reference a *specific* aspect of the company's work or mission that connects to the user's experience.
+            4. **Express Interest in Opportunities:** Clearly state interest in exploring potential roles that align with the user's skills.
+            5. **Call to Action:** Ask politely about potential openings or who the appropriate contact might be.
+            6. **Tone:** Professional, enthusiastic, and authentically personal.
 
             **Generate the personalized job inquiry message now.**
             """
 
             response = self.generation_model.generate_content(prompt)
             if not response or not hasattr(response, 'text'):
-                 logger.error("Invalid response received from Gemini API during job inquiry generation.")
-                 raise ValueError("Invalid response from Gemini API.")
+                logger.error("Invalid response received from Gemini API during job inquiry generation.")
+                raise ValueError("Invalid response from Gemini API.")
             message = response.text.strip()
 
-            # Shorten if needed (target ~1000 chars, less critical than connection request)
+            # Shorten if needed
             message = self._shorten_message(message, 2500, founder_name, company_name)
 
             return message

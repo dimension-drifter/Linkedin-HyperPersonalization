@@ -90,6 +90,18 @@ def init_database():
         # Now it's safe to create the index
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_message_type ON messages (founder_id, message_type);")
 
+        # Add new resume_data table
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS resume_data (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER DEFAULT 1,
+            resume_content TEXT,
+            file_name TEXT,
+            upload_date TEXT,
+            is_active INTEGER DEFAULT 1
+        )
+        ''')
+
         conn.commit() # Commit the transaction
         logger.info("Database initialization/update complete.")
 
@@ -522,9 +534,17 @@ class DatabaseOps:
         conn = self._get_connection()
         cursor = conn.cursor()
         try:
+            # Ensure founder_data is valid
+            if not founder_data or not isinstance(founder_data, dict):
+                logger.error(f"Invalid founder_data provided for {profile_url}")
+                return None
+                
             # Ensure summary is handled correctly (might be long)
             summary_text = founder_data.get('summary', '')
-            if isinstance(summary_text, list): # Handle if Gemini returns summary as list
+            # Handle None explicitly - this is what's causing the error
+            if summary_text is None:
+                summary_text = ''
+            elif isinstance(summary_text, list): # Handle if Gemini returns summary as list
                 summary_text = " ".join(summary_text)
 
             cursor.execute('''
@@ -535,7 +555,7 @@ class DatabaseOps:
                 profile_url,
                 founder_data.get('full_name', 'Unknown'), # Use default if missing
                 founder_data.get('headline', ''),
-                summary_text[:10000], # Truncate if necessary
+                summary_text[:10000] if summary_text else '', # Safe slicing
                 founder_data.get('location', ''),
                 datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             ))
@@ -716,6 +736,78 @@ class DatabaseOps:
         finally:
             conn.close()
 
+    def save_resume_data(self, resume_data, file_name):
+        """
+        Save parsed resume data to the database.
+        
+        Args:
+            resume_data: Dictionary containing parsed resume data
+            file_name: Original filename of the resume
+            
+        Returns:
+            resume_id if successful, None otherwise
+        """
+        if not resume_data:
+            logger.error("Cannot save empty resume data")
+            return None
+            
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        try:
+            # First, deactivate any existing active resumes (we only keep one active at a time for simplicity)
+            cursor.execute("UPDATE resume_data SET is_active = 0 WHERE user_id = 1 AND is_active = 1")
+            
+            # Now save the new resume data
+            cursor.execute('''
+            INSERT INTO resume_data (user_id, resume_content, file_name, upload_date, is_active)
+            VALUES (?, ?, ?, ?, 1)
+            ''', (
+                1,  # Default user_id
+                json.dumps(resume_data),
+                file_name,
+                datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            ))
+            
+            resume_id = cursor.lastrowid
+            conn.commit()
+            logger.info(f"Saved resume data with ID: {resume_id}")
+            return resume_id
+        except sqlite3.Error as e:
+            logger.error(f"Database error saving resume data: {str(e)}")
+            conn.rollback()
+            return None
+        finally:
+            conn.close()
+
+    def get_active_resume_data(self):
+        """
+        Retrieve the currently active resume data.
+        
+        Returns:
+            Dictionary containing resume data if found, None otherwise
+        """
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT resume_content FROM resume_data WHERE user_id = 1 AND is_active = 1 ORDER BY id DESC LIMIT 1")
+            result = cursor.fetchone()
+            
+            if result and result['resume_content']:
+                try:
+                    resume_data = json.loads(result['resume_content'])
+                    return resume_data
+                except json.JSONDecodeError:
+                    logger.error("Failed to parse stored resume data")
+                    return None
+            else:
+                logger.info("No active resume data found")
+                return None
+        except sqlite3.Error as e:
+            logger.error(f"Database error retrieving resume data: {str(e)}")
+            return None
+        finally:
+            conn.close()
+
 
 # Main pipeline class
 class LinkedInOutreachPipeline:
@@ -723,7 +815,6 @@ class LinkedInOutreachPipeline:
         """
         Initializes the pipeline with pre-configured components.
         """
-        # --- This class remains largely the same, just ensure it uses the new scraper output ---
         self.config = scraper.config # Get config from scraper
         self.scraper = scraper
         self.researcher = researcher
@@ -731,43 +822,45 @@ class LinkedInOutreachPipeline:
         self.db = db_ops
         logger.info("LinkedInOutreachPipeline initialized with provided components.")
 
-    # Modified to accept user_tech_stack and generate/save both messages
-    def process_single_profile_with_scraper(self, profile_url, scraper_instance, user_tech_stack=""): # Added user_tech_stack
+    # Modified to accept requested_message_type and only save that type
+    def process_single_profile_with_scraper(self, profile_url, scraper_instance, user_tech_stack="", requested_message_type=None): # Added requested_message_type
         if not scraper_instance:
              logger.error("Scraper instance is not provided.")
              return None
+        if not requested_message_type:
+             logger.error("requested_message_type is required for processing.")
+             # Default to connection if not provided? Or raise error? Let's default for now.
+             # requested_message_type = 'connection'
+             # Better to return error if it's expected from API call
+             return None
+
         try:
             # Step 1: Extract LinkedIn profile data
             founder_data = scraper_instance.extract_profile_data(profile_url)
             if not founder_data:
-                logger.error(f"Failed to extract profile data for {profile_url}")
-                return None
+                logger.error(f"Failed to extract founder data for {profile_url}")
+                return None # Stop processing if profile extraction fails
 
             # Step 2: Identify primary company
-            # ... (existing company identification logic remains the same) ...
             company_name = None
             company_title = None
-            company_description = None
+            company_description = None # Placeholder, might be filled by vision model
             if 'experiences' in founder_data and founder_data['experiences']:
-                founder_keywords = ['founder', 'co-founder', 'cofounder', 'ceo', 'chief executive', 'owner', 'president', 'managing director', 'director', 'entrepreneur', 'proprietor']
-                found_primary = False
-                for exp in founder_data['experiences']:
-                    if isinstance(exp, dict) and 'title' in exp:
-                        title_lower = exp.get('title', '').lower()
-                        if any(keyword in title_lower for keyword in founder_keywords):
-                            company_name = exp.get('company')
-                            company_title = exp.get('title')
-                            company_description = exp.get('description', '')
-                            found_primary = True
-                            break
-                if not found_primary and founder_data['experiences']:
-                     first_exp = founder_data['experiences'][0]
-                     if isinstance(first_exp, dict):
-                         company_name = first_exp.get('company')
-                         company_title = first_exp.get('title')
-                         company_description = first_exp.get('description', '')
-            if not company_name: company_name = "their company"
+                # Prioritize current company if possible, otherwise take the first one
+                current_exp = next((exp for exp in founder_data['experiences'] if 'present' in exp.get('duration', '').lower()), None)
+                if current_exp:
+                    company_name = current_exp.get('company')
+                    company_title = current_exp.get('title')
+                    company_description = current_exp.get('description')
+                elif founder_data['experiences']:
+                    first_exp = founder_data['experiences'][0]
+                    company_name = first_exp.get('company')
+                    company_title = first_exp.get('title')
+                    company_description = first_exp.get('description')
 
+            if not company_name:
+                 logger.warning(f"Could not determine primary company for {profile_url}. Using placeholder.")
+                 company_name = "their company" # Fallback
 
             # Step 3: Enhance founder data
             enhanced_founder_data = founder_data.copy()
@@ -775,49 +868,75 @@ class LinkedInOutreachPipeline:
                 'name': company_name, 'title': company_title, 'description': company_description
             }
 
-            # Step 4: Research company
-            company_research_data = self.researcher.search_company_info(company_name)
-            company_research_data['title'] = company_title # Add title from profile
+            # Step 4: Research company (only if name is not a placeholder)
+            company_research_data = {'name': company_name, 'title': company_title}
+            if company_name != "their company":
+                 company_research_data.update(self.researcher.search_company_info(company_name))
+                 company_research_data['title'] = company_title # Ensure title is preserved
 
             # Step 5 & 6: Save data to database
             founder_id = self.db.save_founder_data(enhanced_founder_data, profile_url)
             if founder_id:
                 self.db.save_company_data(founder_id, company_research_data)
             else:
-                 logger.error(f"Failed to save founder data for {profile_url}, cannot proceed.")
-                 return None
+                 logger.error(f"Failed to save founder data, cannot proceed for {profile_url}")
+                 return None # Stop if founder can't be saved
+
+            # Get resume data if available
+            resume_data = None
+            if hasattr(self.db, 'get_active_resume_data'):
+                resume_data = self.db.get_active_resume_data()
 
             # Step 7: Summarize data
             company_summary = self.generator.summarize_company_data(enhanced_founder_data, company_research_data)
 
-            # Step 8: Generate BOTH messages
-            connection_message = self.generator.generate_connection_request(enhanced_founder_data, company_summary)
-            job_inquiry_message = self.generator.generate_job_inquiry(enhanced_founder_data, company_summary, user_tech_stack) # Pass tech stack
+            # Step 8: Generate ONLY the requested message type
+            generated_message_text = None
+            generated_message_id = None
 
-            # Step 9: Save BOTH messages
-            connection_message_id = self.db.save_message(founder_id, connection_message, 'connection')
-            job_inquiry_message_id = self.db.save_message(founder_id, job_inquiry_message, 'job_inquiry')
+            if requested_message_type == 'connection':
+                generated_message_text = self.generator.generate_connection_request(
+                    enhanced_founder_data, company_summary, resume_data
+                )
+            elif requested_message_type == 'job_inquiry':
+                generated_message_text = self.generator.generate_job_inquiry(
+                    enhanced_founder_data, company_summary, user_tech_stack, resume_data
+                )
+            else:
+                logger.error(f"Invalid requested_message_type: {requested_message_type}")
+                return None # Stop if type is invalid
 
-            # Step 10: Return results including both messages and their IDs
+            if not generated_message_text:
+                 logger.error(f"Failed to generate {requested_message_type} message for {profile_url}")
+                 # Return partial data or None? Let's return None for consistency
+                 return None
+
+            # Step 9: Save ONLY the generated message
+            generated_message_id = self.db.save_message(founder_id, generated_message_text, requested_message_type)
+
+            # Step 10: Return results including only the generated message and its ID
             return {
-                'founder': enhanced_founder_data,
-                'company': company_research_data,
-                'summary': company_summary, # Keep summary if needed by frontend
-                'connection_message': connection_message,
-                'connection_message_id': connection_message_id,
-                'job_inquiry_message': job_inquiry_message,
-                'job_inquiry_message_id': job_inquiry_message_id,
+                # 'founder': enhanced_founder_data, # Not needed by frontend directly
+                # 'company': company_research_data, # Not needed by frontend directly
+                # 'summary': company_summary, # Not needed by frontend directly
+                'message_text': generated_message_text,         # Renamed for clarity in API response
+                'message_id': generated_message_id,             # Renamed for clarity in API response
+                'message_type': requested_message_type,         # Include the type generated
                 'linkedin_url': profile_url,
                 'full_name': enhanced_founder_data.get('full_name'),
                 'company_name': company_name,
+                'used_resume_data': resume_data is not None
             }
 
         except Exception as e:
             logger.exception(f"Error in pipeline processing {profile_url}: {str(e)}")
             return None
 
-    # Modified to accept user_tech_stack
-    def process_batch_from_csv(self, csv_file, scraper_instance, user_tech_stack=""): # Added user_tech_stack
+    # Batch processing needs to decide WHICH message type to generate for each profile
+    # Option 1: Generate only connection requests for batch.
+    # Option 2: Add UI choice for batch message type.
+    # Let's go with Option 1 for simplicity now.
+    def process_batch_from_csv(self, csv_file, scraper_instance, user_tech_stack=""):
         if not scraper_instance:
              logger.error("Scraper instance is required for batch processing.")
              return False
@@ -842,20 +961,46 @@ class LinkedInOutreachPipeline:
 
             for i, profile_url in enumerate(profiles):
                 logger.info(f"Processing profile {i+1}/{total_profiles}: {profile_url}")
-                # Pass user_tech_stack to the processing method
-                result = self.process_single_profile_with_scraper(profile_url, scraper_instance, user_tech_stack)
+                # Call process_single_profile_with_scraper, explicitly requesting 'connection' type for batch
+                result = self.process_single_profile_with_scraper(
+                    profile_url,
+                    scraper_instance,
+                    user_tech_stack,
+                    requested_message_type='connection' # <<< Hardcode to connection for batch
+                )
                 if result:
+                    # Adapt the result structure if needed for batch display
+                    # The result now only contains the connection message details
+                    batch_result_data = {
+                        "full_name": result.get("full_name"),
+                        "company_name": result.get("company_name"),
+                        "linkedin_url": result.get("linkedin_url"),
+                        "connection_message": { # Structure expected by current batch card JS (needs adjustment)
+                            "text": result.get("message_text"),
+                            "id": result.get("message_id")
+                        },
+                        "job_inquiry_message": { # Add empty placeholder if card expects it
+                            "text": None,
+                            "id": None
+                        },
+                        "message_id": result.get("message_id") # Primary ID for card actions
+                    }
+                    # Append batch_result_data to a list to be returned by the API
+                    # (This function currently returns boolean, needs change if called by API)
                     results_count += 1
-                    logger.info(f"Successfully processed: {profile_url}")
+                    logger.info(f"Successfully processed batch item: {profile_url}")
                 else:
-                    logger.warning(f"Failed to process: {profile_url}")
-                delay = random.uniform(15, 25)
+                    logger.warning(f"Failed to process batch item: {profile_url}")
+
+                # Add delay
+                delay = random.uniform(10, 20)
                 logger.info(f"Waiting {delay:.1f}s before next profile...")
                 time.sleep(delay)
+            # ... (rest of batch logic) ...
+            # This function needs to return the list of results if called by the API
+            # For now, it's designed for direct script execution, returning boolean.
+            return results_count > 0 # Keep boolean return for direct script use case
 
-            logger.info(f"Batch processing finished. Successfully processed {results_count}/{total_profiles} profiles.")
-            return results_count > 0
-        # ... (exception handling remains the same) ...
         except FileNotFoundError:
              logger.error(f"CSV file not found: {csv_file}")
              return False
@@ -891,19 +1036,22 @@ if __name__ == '__main__':
         # --- Test Single Profile ---
         test_profile_url = "https://www.linkedin.com/in/williamhgates/" # Example public profile
         logger.info(f"--- Testing single profile: {test_profile_url} ---")
-        # Need to pass the scraper instance
-        result = pipeline.process_single_profile_with_scraper(test_profile_url, scraper)
+        # Need to pass the scraper instance AND message type
+        result = pipeline.process_single_profile_with_scraper(
+            test_profile_url,
+            scraper,
+            requested_message_type='connection' # Test with 'connection'
+        )
 
         if result:
             logger.info("--- Single Profile Result ---")
             logger.info(f"Name: {result.get('full_name')}")
             logger.info(f"Company: {result.get('company_name')}")
+            logger.info(f"Message Type: {result.get('message_type')}")
             logger.info(f"Message ID: {result.get('message_id')}")
-            logger.info(f"Generated Message:\n{result.get('message')}")
-            # logger.info(f"Full Founder Data: {json.dumps(result.get('founder'), indent=2)}")
-            # logger.info(f"Full Company Data: {json.dumps(result.get('company'), indent=2)}")
+            logger.info(f"Generated Message:\n{result.get('message_text')}")
         else:
-            logger.error("--- Single Profile Processing Failed ---")
+            logger.error(f"Failed to process single profile {test_profile_url}")
 
         # --- Test Batch Processing (Optional) ---
         # Create a dummy CSV file 'test_profiles.csv' with a 'linkedin_url' column

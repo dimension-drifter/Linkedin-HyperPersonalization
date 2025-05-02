@@ -18,6 +18,7 @@ import random # Import random for delay example if needed
 # Import necessary classes from main
 from main import LinkedInOutreachPipeline, DatabaseOps, Config, LinkedInScraper, CompanyResearcher
 from message_generator import MessageGenerator # <-- ADD THIS IMPORT
+from resume_processor import ResumeProcessor  # Add this import
 
 # LinkedInAuth is now primarily managed within LinkedInScraper
 # from linkedin_auth import LinkedInAuth # No longer need direct import here
@@ -30,6 +31,7 @@ logger = logging.getLogger(__name__) # Use logger
 pipeline_instance: LinkedInOutreachPipeline | None = None
 db_ops_instance: DatabaseOps | None = None
 scraper_instance: LinkedInScraper | None = None # This holds the persistent Playwright session via LinkedInAuth
+resume_processor_instance: ResumeProcessor | None = None
 session_is_valid: bool = False
 last_session_check: datetime | None = None
 config_instance: Config | None = None
@@ -39,7 +41,7 @@ def initialize_services():
     Initialize LinkedIn scraper and pipeline ONCE and reuse the instances.
     Manages the persistent Playwright session via the scraper_instance.
     """
-    global config_instance, pipeline_instance, db_ops_instance, scraper_instance
+    global config_instance, pipeline_instance, db_ops_instance, scraper_instance, resume_processor_instance
     global session_is_valid, last_session_check
 
     # Lock or synchronization mechanism might be needed if high concurrency is expected
@@ -53,6 +55,9 @@ def initialize_services():
             db_ops_instance = DatabaseOps()
             # Create the scraper instance - this starts Playwright via LinkedInAuth
             scraper_instance = LinkedInScraper(config_instance)
+            
+            # Initialize the resume processor
+            resume_processor_instance = ResumeProcessor(config_instance)
 
             # Create the pipeline instance (uses shared config, db_ops)
             # Note: Pipeline itself doesn't hold the scraper state.
@@ -205,67 +210,73 @@ def serve_assets(path):
 
 @app.route('/api/process_profile', methods=['POST'])
 def process_profile():
-    """Process a single LinkedIn profile URL using the persistent scraper."""
-    init_status = initialize_services()
-    # Allow processing even if login failed initially, but log it.
-    # if init_status["status"] == "error":
-    #     return jsonify({"error": f"Service initialization error: {init_status['message']}"}), 503 # Service Unavailable
+    """Process a LinkedIn profile URL and generate a specific outreach message."""
+    init_status = initialize_services() # Ensure services are ready
 
     if not pipeline_instance or not scraper_instance or not db_ops_instance:
-         return jsonify({"error": "Services not available. Initialization might have failed."}), 503
+        logger.error("Attempted to process profile, but services are not available.")
+        return jsonify({"error": "Services not available. Initialization might have failed."}), 503
 
-    # Check session validity *before* processing
+    # Verify session validity before proceeding (optional, depends on desired behavior)
     if not session_is_valid:
-         logger.warning("Processing profile requested, but LinkedIn session is currently invalid.")
-         # Optionally return an error or try to proceed cautiously
+         logger.warning("Profile processing requested, but LinkedIn session is currently invalid.")
          # return jsonify({"error": "LinkedIn session is invalid. Please try again later or check logs."}), 503
 
     try:
         data = request.json
         linkedin_url = data.get('url')
-        user_tech_stack = data.get('tech_stack', '') # Get tech stack from request
+        user_tech_stack = data.get('tech_stack', '')
+        requested_message_type = data.get('message_type') # 'connection' or 'job_inquiry'
 
         if not linkedin_url:
             return jsonify({"error": "LinkedIn URL is required"}), 400
+        if not requested_message_type or requested_message_type not in ['connection', 'job_inquiry']:
+            return jsonify({"error": "Valid 'message_type' (connection or job_inquiry) is required"}), 400
 
-        # Pass scraper_instance and user_tech_stack
+        logger.info(f"Processing profile {linkedin_url} for message type: {requested_message_type}")
+
+        # Call pipeline, passing the requested_message_type
         result = pipeline_instance.process_single_profile_with_scraper(
             linkedin_url,
             scraper_instance,
-            user_tech_stack # Pass it here
+            user_tech_stack,
+            requested_message_type=requested_message_type # Pass the type here
         )
 
         if result is None:
-            logger.error(f"process_single_profile_with_scraper returned None for URL: {linkedin_url}")
-            return jsonify({"error": "Failed to process profile. Check server logs for details."}), 500
+            logger.error(f"Pipeline processing returned None for URL: {linkedin_url}")
+            # Provide a more specific error if possible, e.g., based on logs
+            return jsonify({"error": "Failed to process profile. Check server logs for details (e.g., profile extraction or message generation failed)."}), 500
 
-        # Result now contains both messages and their IDs
-        # Rename keys slightly for clarity in JSON response
+        # The result dictionary now directly contains the generated message details
+        # No need to select based on type here anymore, the pipeline did it.
         response_data = {
             "full_name": result.get("full_name"),
             "company_name": result.get("company_name"),
             "linkedin_url": result.get("linkedin_url"),
-            "connection_message": {
-                "text": result.get("connection_message"),
-                "id": result.get("connection_message_id")
-            },
-            "job_inquiry_message": {
-                "text": result.get("job_inquiry_message"),
-                "id": result.get("job_inquiry_message_id")
-            }
-            # Optionally include founder/company details if needed by frontend
-            # "founder_details": result.get("founder"),
-            # "company_details": result.get("company"),
+            "message_type": result.get("message_type"), # Use the type returned by pipeline
+            "message_text": result.get("message_text"),
+            "message_id": result.get("message_id"),
+            "used_resume_data": result.get("used_resume_data", False)
         }
 
-        return jsonify(response_data) # Return the structured response
+        # Check if the message was actually generated (pipeline should ensure this, but double-check)
+        if not response_data.get("message_text"):
+             logger.warning(f"Pipeline returned result but message_text is missing for {linkedin_url}")
+             return jsonify({"error": f"Failed to generate the requested '{requested_message_type}' message."}), 500
+
+        logger.info(f"Successfully generated '{requested_message_type}' message for {linkedin_url}")
+        return jsonify(response_data)
 
     except Exception as e:
-        error_msg = f"Error processing profile {linkedin_url}: {str(e)}"
-        print(error_msg)
-        logger.exception(error_msg) # Log stack trace
-        traceback.print_exc()
-        return jsonify({"error": "An internal server error occurred."}), 500
+        # Log the full traceback for server-side debugging
+        error_msg = f"Error in /api/process_profile for {data.get('url', 'unknown URL')}: {str(e)}"
+        print(error_msg) # Print to console
+        logger.exception(error_msg) # Log with traceback
+        traceback.print_exc() # Print traceback to console
+
+        # Return a generic error to the client
+        return jsonify({"error": "An internal server error occurred while processing the profile."}), 500
 
 
 @app.route('/api/process_batch', methods=['POST'])
@@ -307,7 +318,8 @@ def process_batch():
                 result = pipeline_instance.process_single_profile_with_scraper(
                     url,
                     scraper_instance,
-                    user_tech_stack # Pass it here
+                    user_tech_stack, # Pass it here
+                    requested_message_type='connection' # Hardcode connection type for batch
                 )
                 if result:
                     # Structure batch result similar to single profile response
@@ -316,13 +328,14 @@ def process_batch():
                         "company_name": result.get("company_name"),
                         "linkedin_url": result.get("linkedin_url"),
                         "connection_message": {
-                            "text": result.get("connection_message"),
-                            "id": result.get("connection_message_id")
+                            "text": result.get("message_text"),
+                            "id": result.get("message_id")
                         },
                         "job_inquiry_message": {
-                            "text": result.get("job_inquiry_message"),
-                            "id": result.get("job_inquiry_message_id")
-                        }
+                            "text": None,
+                            "id": None
+                        },
+                        "message_id": result.get("message_id") # Primary ID for card actions
                     }
                     results.append(response_data)
                     processed_count += 1
@@ -451,6 +464,122 @@ def export_csv():
         print(error_msg)
         logger.exception(error_msg)
         return jsonify({"error": "Failed to export data as CSV."}), 500
+
+
+@app.route('/api/upload_resume', methods=['POST'])
+def upload_resume():
+    """Upload and process a resume PDF."""
+    init_status = initialize_services()
+    if not resume_processor_instance or not db_ops_instance:
+        return jsonify({"error": "Services not available."}), 503
+
+    try:
+        # Check if file was uploaded
+        if 'resume' not in request.files:
+            return jsonify({"error": "No file part in the request"}), 400
+            
+        file = request.files['resume']
+        
+        # Check if file was selected
+        if file.filename == '':
+            return jsonify({"error": "No file selected"}), 400
+            
+        # Check file extension
+        if not file.filename.lower().endswith('.pdf'):
+            return jsonify({"error": "Only PDF files are accepted"}), 400
+        
+        # Save uploaded file
+        upload_dir = os.path.join(os.getcwd(), "resume_uploads")
+        if not os.path.exists(upload_dir):
+            os.makedirs(upload_dir)
+            
+        file_path = os.path.join(
+            upload_dir, 
+            f"resume_{datetime.now().strftime('%Y%m%d%H%M%S')}_{file.filename}"
+        )
+        file.save(file_path)
+        
+        # Process the resume
+        resume_data = resume_processor_instance.process_resume(file_path)
+        if not resume_data:
+            return jsonify({"error": "Failed to process resume. Please check the file and try again."}), 500
+        
+        # Save to database
+        resume_id = db_ops_instance.save_resume_data(resume_data, os.path.basename(file_path))
+        if not resume_id:
+            return jsonify({"error": "Failed to save resume data to database"}), 500
+            
+        # Generate a tech stack summary for immediate use
+        tech_stack_summary = resume_processor_instance.get_tech_stack_summary(resume_data)
+            
+        return jsonify({
+            "success": True, 
+            "message": "Resume processed successfully",
+            "resume_id": resume_id,
+            "tech_stack_summary": tech_stack_summary
+        })
+        
+    except Exception as e:
+        error_msg = f"Error processing resume: {str(e)}"
+        print(error_msg)
+        logger.exception(error_msg)
+        return jsonify({"error": "An internal server error occurred during resume processing."}), 500
+
+
+@app.route('/api/resume_data', methods=['GET'])
+def get_resume_data():
+    """Get the active resume data."""
+    if not db_ops_instance:
+        return jsonify({"error": "Database service not available."}), 503
+        
+    try:
+        resume_data = db_ops_instance.get_active_resume_data()
+        if not resume_data:
+            return jsonify({"error": "No active resume data found"}), 404
+            
+        # You may want to filter sensitive data before returning
+        filtered_data = {
+            "basic_info": {
+                "full_name": resume_data.get("basic_info", {}).get("full_name", ""),
+                # Filter out email/phone for privacy if needed
+            },
+            "skills": resume_data.get("skills", {}),
+            "experience": resume_data.get("experience", []),
+            "education": resume_data.get("education", [])
+        }
+            
+        return jsonify(filtered_data)
+        
+    except Exception as e:
+        error_msg = f"Error retrieving resume data: {str(e)}"
+        print(error_msg)
+        logger.exception(error_msg)
+        return jsonify({"error": "An internal server error occurred."}), 500
+
+
+# Add this new endpoint for clearing resume data
+
+@app.route('/api/clear_resume', methods=['POST'])
+def clear_resume():
+    """Clear the active resume data."""
+    if not db_ops_instance:
+        return jsonify({"error": "Database service not available."}), 503
+        
+    try:
+        # Deactivate all resumes
+        conn = db_ops_instance._get_connection()
+        cursor = conn.cursor()
+        cursor.execute("UPDATE resume_data SET is_active = 0 WHERE user_id = 1")
+        conn.commit()
+        conn.close()
+            
+        return jsonify({"success": True, "message": "Resume data cleared successfully"})
+        
+    except Exception as e:
+        error_msg = f"Error clearing resume data: {str(e)}"
+        print(error_msg)
+        logger.exception(error_msg)
+        return jsonify({"error": "An internal server error occurred."}), 500
 
 
 # Remove the enhance_db_ops function and call, as methods are now part of the class.
